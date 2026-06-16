@@ -1,0 +1,17 @@
+[experiment]
+name = "example_local_registered_components"
+seed = 42
+output_dir = "../runs"
+
+[data]
+name = "toy_data"
+path = "../examples/components/data/example_data.py"
+
+[model]
+name = "toy_model"
+path = "../examples/components/models/example_model.py"
+
+[[metrics]]
+name = "mae"
+path = "../examples/components/metrics/example_metric.py"
+stages = ["validation", "test"]

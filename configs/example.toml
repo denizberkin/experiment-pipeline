@@ -1,0 +1,38 @@
+[experiment]
+name = "example_single_experiment"
+seed = 42
+output_dir = "../runs"
+
+[registry]
+paths = [
+  "../examples/components/data/example_data.py",
+  "../examples/components/models/example_model.py",
+  "../examples/components/training/example_trainer.py",
+  "../examples/components/validation/example_validator.py",
+  "../examples/components/testing/example_tester.py",
+  "../examples/components/losses/example_loss.py",
+  "../examples/components/metrics/example_metric.py",
+]
+
+[data]
+name = "toy_data"
+
+[model]
+name = "toy_model"
+
+[training]
+name = "toy_trainer"
+
+[validation]
+name = "toy_validator"
+
+[test]
+name = "toy_tester"
+
+[[losses]]
+name = "mae_loss"
+weight = 1.0
+
+[[metrics]]
+name = "mae"
+stages = ["validation", "test"]

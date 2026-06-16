@@ -1,0 +1,20 @@
+[experiment]
+name = "example_explicit_components"
+seed = 42
+output_dir = "../runs"
+
+[data]
+name = "toy_data"
+path = "../examples/components/data/example_data.py"
+class_name = "ExampleDataModule"
+
+[model]
+name = "toy_model"
+path = "../examples/components/models/example_model.py"
+class_name = "ExampleModelFactory"
+
+[[metrics]]
+name = "mae"
+path = "../examples/components/metrics/example_metric.py"
+class_name = "ExampleMetric"
+stages = ["validation", "test"]
