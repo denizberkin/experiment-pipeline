@@ -1,0 +1,31 @@
+[experiment]
+name = "example_builtin_components"
+seed = 42
+output_dir = "../runs"
+
+[registry]
+paths = [
+  "../examples/components/data/example_data.py",
+  "../examples/components/models/example_model.py",
+]
+
+[data]
+name = "toy_data"
+
+[model]
+name = "toy_model"
+
+[[losses]]
+name = "mse"
+weight = 1.0
+
+[[metrics]]
+name = "mae"
+stages = ["validation", "test"]
+
+[[metrics]]
+name = "dice"
+stages = ["validation", "test"]
+
+[metrics.params]
+threshold = 0.5

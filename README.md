@@ -1,7 +1,8 @@
 # Pipeline
 
-A generic, config-driven evaluation pipeline scaffold for ML and DL experiments.
+I tried to make this as flexible and config driven as possible.
 
+Summarizing:
 The project is organized around separate component categories that gather into one experiment:
 
 ```text
@@ -23,17 +24,6 @@ components/
   validation/
   testing/
 ```
-
-## Current Scope
-
-Step 1 provides:
-
-- TOML/JSON single-experiment config loading
-- separate interfaces for data, models, losses, metrics, training, validation, testing, and prediction
-- relative component path resolution
-- dynamic imports with base-class checks
-- category-specific build modules
-- a validation CLI
 
 ## Single Experiment Config
 
@@ -81,6 +71,8 @@ stages = ["validation", "test"]
 ```
 
 Component paths are resolved relative to the config file.
+
+Built-in components under `eval_pipeline/components/` can be referenced by name without adding a path. For example, `eval_pipeline/components/metrics/dice.py` can provide `name = "dice"` directly. External project components still need either `[registry].paths` or a local `path`.
 
 You can also skip `[registry]` and keep paths local to each component:
 

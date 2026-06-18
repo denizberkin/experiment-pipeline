@@ -47,6 +47,17 @@ COMPONENT_SPECS: dict[str, ComponentSpec] = {
 
 _COMPONENT_REGISTRY: dict[tuple[str, str], RegisteredComponent] = {}
 
+_COMPONENT_DIRS = {
+    "data": "data",
+    "model": "models",
+    "loss": "losses",
+    "metric": "metrics",
+    "training": "trainers",
+    "validation": "validators",
+    "test": "testers",
+    "prediction": "predictors",
+}
+
 
 def get_component_spec(category: str) -> ComponentSpec:
     try:
@@ -72,8 +83,19 @@ def register_component(name: str, *, category: str):
             )
 
         key = (category, name)
+        source_path = _component_source_path(component_class)
         existing = _COMPONENT_REGISTRY.get(key)
         if existing is not None and existing.component_class is not component_class:
+            if _is_builtin_source_path(existing.source_path) and not _is_builtin_source_path(source_path):
+                _COMPONENT_REGISTRY[key] = RegisteredComponent(
+                    category=category,
+                    name=name,
+                    component_class=component_class,
+                    source_path=source_path,
+                )
+                return component_class
+            if not _is_builtin_source_path(existing.source_path) and _is_builtin_source_path(source_path):
+                return component_class
             raise ConfigError(
                 f"Component alias '{name}' for category '{category}' is already registered "
                 f"by {existing.component_class.__module__}.{existing.component_class.__name__}."
@@ -83,7 +105,7 @@ def register_component(name: str, *, category: str):
             category=category,
             name=name,
             component_class=component_class,
-            source_path=_component_source_path(component_class),
+            source_path=source_path,
         )
         return component_class
 
@@ -91,10 +113,7 @@ def register_component(name: str, *, category: str):
 
 
 def get_registered_component(category: str, name: str) -> type[Any]:
-    try:
-        return _COMPONENT_REGISTRY[(category, name)].component_class
-    except KeyError as exc:
-        raise ConfigError(f"No registered component named '{name}' for category '{category}'.") from exc
+    return _get_registered_component(category, name).component_class
 
 
 def import_registry_paths(paths: list[Path]) -> None:
@@ -114,7 +133,7 @@ def resolve_component_class(config: ComponentConfig) -> type[Any]:
             import_module_from_path(config.path)
         if config.name is None:
             raise ConfigError(f"Component in category '{config.category}' must define 'name' or 'class_name'.")
-        registered = _get_registered_component(config.category, config.name)
+        registered = _find_registered_component(config.category, config.name)
         if config.path is not None and registered.source_path is not None and registered.source_path != config.path:
             raise ConfigError(
                 f"Component alias '{config.name}' for category '{config.category}' was loaded from "
@@ -141,11 +160,60 @@ def validate_component_imports(configs: list[ComponentConfig], *, registry_paths
         resolve_component_class(config)
 
 
+def _find_registered_component(category: str, name: str) -> RegisteredComponent:
+    registered = _lookup_registered_component(category, name)
+    if registered is not None:
+        return registered
+
+    _import_builtin_component_file(category, name)
+    registered = _lookup_registered_component(category, name)
+    if registered is not None:
+        return registered
+
+    builtin_hint = _builtin_component_hint(category, name)
+    raise ConfigError(
+        f"No registered component named '{name}' for category '{category}'. "
+        f"For built-ins, add a registered component at {builtin_hint}. "
+        "For external components, add the script to [registry].paths or set path on the component."
+    )
+
+
 def _get_registered_component(category: str, name: str) -> RegisteredComponent:
-    try:
-        return _COMPONENT_REGISTRY[(category, name)]
-    except KeyError as exc:
-        raise ConfigError(f"No registered component named '{name}' for category '{category}'.") from exc
+    registered = _lookup_registered_component(category, name)
+    if registered is None:
+        raise ConfigError(f"No registered component named '{name}' for category '{category}'.")
+    return registered
+
+
+def _lookup_registered_component(category: str, name: str) -> RegisteredComponent | None:
+    return _COMPONENT_REGISTRY.get((category, name))
+
+
+def _import_builtin_component_file(category: str, name: str) -> None:
+    for path in _builtin_component_candidates(category, name):
+        if path.exists():
+            import_module_from_path(path)
+            return
+
+
+def _builtin_component_candidates(category: str, name: str) -> list[Path]:
+    root = _builtin_category_dir(category)
+    normalized_name = name.replace("-", "_")
+    candidates = [root / f"{normalized_name}.py"]
+
+    if "." in normalized_name:
+        candidates.append(root.joinpath(*normalized_name.split(".")).with_suffix(".py"))
+
+    return candidates
+
+
+def _builtin_category_dir(category: str) -> Path:
+    get_component_spec(category)
+    return Path(__file__).resolve().parents[1] / "components" / _COMPONENT_DIRS[category]
+
+
+def _builtin_component_hint(category: str, name: str) -> Path:
+    return _builtin_component_candidates(category, name)[0]
 
 
 def _component_source_path(component_class: type[Any]) -> Path | None:
@@ -154,3 +222,14 @@ def _component_source_path(component_class: type[Any]) -> Path | None:
     if module_file is None:
         return None
     return Path(module_file).resolve()
+
+
+def _is_builtin_source_path(path: Path | None) -> bool:
+    if path is None:
+        return False
+    components_root = Path(__file__).resolve().parents[1] / "components"
+    try:
+        path.resolve().relative_to(components_root)
+    except ValueError:
+        return False
+    return True
