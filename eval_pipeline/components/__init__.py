@@ -8,6 +8,7 @@ from eval_pipeline.interfaces import (
     PipelineComponent,
     Predictor,
     Tester,
+    ExperimentTracker,
     Trainer,
     Validator,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "PipelineComponent",
     "Predictor",
     "Tester",
+    "ExperimentTracker",
     "Trainer",
     "Validator",
 ]
