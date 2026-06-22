@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from eval_pipeline.core.config import ExperimentConfig
+
+if TYPE_CHECKING:
+    from eval_pipeline.interfaces.tracking import ExperimentTracker
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,7 @@ class ExperimentContext:
     config: ExperimentConfig
     paths: ExperimentPaths
     seed: int | None
+    tracker: ExperimentTracker
     state: dict[str, Any] = field(default_factory=dict)
 
 
@@ -57,37 +61,71 @@ def build_experiment_paths(config: ExperimentConfig) -> ExperimentPaths:
     )
 
 
-def make_training_context(config: ExperimentConfig, *, state: dict[str, Any] | None = None) -> TrainingContext:
+def make_training_context(
+    config: ExperimentConfig,
+    *,
+    state: dict[str, Any] | None = None,
+    tracker: ExperimentTracker | None = None,
+) -> TrainingContext:
+    paths = build_experiment_paths(config)
     return TrainingContext(
         config=config,
-        paths=build_experiment_paths(config),
+        paths=paths,
         seed=config.seed,
+        tracker=tracker or _build_experiment_tracker(config, paths),
         state=state if state is not None else {},
     )
 
 
-def make_validation_context(config: ExperimentConfig, *, state: dict[str, Any] | None = None) -> ValidationContext:
+def make_validation_context(
+    config: ExperimentConfig,
+    *,
+    state: dict[str, Any] | None = None,
+    tracker: ExperimentTracker | None = None,
+) -> ValidationContext:
+    paths = build_experiment_paths(config)
     return ValidationContext(
         config=config,
-        paths=build_experiment_paths(config),
+        paths=paths,
         seed=config.seed,
+        tracker=tracker or _build_experiment_tracker(config, paths),
         state=state if state is not None else {},
     )
 
 
-def make_test_context(config: ExperimentConfig, *, state: dict[str, Any] | None = None) -> TestContext:
+def make_test_context(
+    config: ExperimentConfig,
+    *,
+    state: dict[str, Any] | None = None,
+    tracker: ExperimentTracker | None = None,
+) -> TestContext:
+    paths = build_experiment_paths(config)
     return TestContext(
         config=config,
-        paths=build_experiment_paths(config),
+        paths=paths,
         seed=config.seed,
+        tracker=tracker or _build_experiment_tracker(config, paths),
         state=state if state is not None else {},
     )
 
 
-def make_prediction_context(config: ExperimentConfig, *, state: dict[str, Any] | None = None) -> PredictionContext:
+def make_prediction_context(
+    config: ExperimentConfig,
+    *,
+    state: dict[str, Any] | None = None,
+    tracker: ExperimentTracker | None = None,
+) -> PredictionContext:
+    paths = build_experiment_paths(config)
     return PredictionContext(
         config=config,
-        paths=build_experiment_paths(config),
+        paths=paths,
         seed=config.seed,
+        tracker=tracker or _build_experiment_tracker(config, paths),
         state=state if state is not None else {},
     )
+
+
+def _build_experiment_tracker(config: ExperimentConfig, paths: ExperimentPaths) -> ExperimentTracker:
+    from eval_pipeline.components.trackers.build import build_experiment_tracker
+
+    return build_experiment_tracker(config, paths)

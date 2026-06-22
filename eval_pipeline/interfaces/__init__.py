@@ -5,6 +5,7 @@ from eval_pipeline.interfaces.model import ModelFactory
 from eval_pipeline.interfaces.pipeline import PipelineComponent
 from eval_pipeline.interfaces.prediction import Predictor
 from eval_pipeline.interfaces.testing import Tester
+from eval_pipeline.interfaces.tracking import ExperimentTracker
 from eval_pipeline.interfaces.training import Trainer
 from eval_pipeline.interfaces.types import (
     DataT,
@@ -25,6 +26,7 @@ __all__ = [
     "PipelineComponent",
     "Predictor",
     "Tester",
+    "ExperimentTracker",
     "Trainer",
     "Validator",
     "DataT",

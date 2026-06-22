@@ -18,8 +18,10 @@ class ExampleValidator(Validator):
         metrics: dict[str, Any],
         context: ValidationContext,
     ) -> dict:
+        validation_size = len(data.get("validation", []))
+        context.tracker.log_metric("validation_size", validation_size, stage=context.stage)
         return {
             "status": "validation_not_implemented",
-            "validation_size": len(data.get("validation", [])),
+            "validation_size": validation_size,
             "experiment_dir": str(context.paths.experiment_dir),
         }

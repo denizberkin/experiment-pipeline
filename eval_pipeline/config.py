@@ -4,6 +4,7 @@ from eval_pipeline.core.config import (
     ExperimentConfig,
     LossConfig,
     MetricConfig,
+    TrackingConfig,
     load_experiment_config,
     parse_experiment_config,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ExperimentConfig",
     "LossConfig",
     "MetricConfig",
+    "TrackingConfig",
     "load_experiment_config",
     "parse_experiment_config",
 ]

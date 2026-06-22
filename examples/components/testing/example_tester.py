@@ -18,8 +18,10 @@ class ExampleTester(Tester):
         metrics: dict[str, Any],
         context: TestContext,
     ) -> dict:
+        test_size = len(data.get("test", []))
+        context.tracker.log_metric("test_size", test_size, stage=context.stage)
         return {
             "status": "test_not_implemented",
-            "test_size": len(data.get("test", [])),
+            "test_size": test_size,
             "stage": context.stage,
         }

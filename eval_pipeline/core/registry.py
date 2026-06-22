@@ -16,6 +16,7 @@ from eval_pipeline.interfaces import (
     Predictor,
     Tester,
     Trainer,
+    ExperimentTracker,
     Validator,
 )
 
@@ -43,6 +44,7 @@ COMPONENT_SPECS: dict[str, ComponentSpec] = {
     "validation": ComponentSpec(category="validation", interface=Validator),
     "test": ComponentSpec(category="test", interface=Tester),
     "prediction": ComponentSpec(category="prediction", interface=Predictor),
+    "tracking": ComponentSpec(category="tracking", interface=ExperimentTracker),
 }
 
 _COMPONENT_REGISTRY: dict[tuple[str, str], RegisteredComponent] = {}
@@ -56,6 +58,7 @@ _COMPONENT_DIRS = {
     "validation": "validators",
     "test": "testers",
     "prediction": "predictors",
+    "tracking": "trackers",
 }
 
 
@@ -86,6 +89,8 @@ def register_component(name: str, *, category: str):
         source_path = _component_source_path(component_class)
         existing = _COMPONENT_REGISTRY.get(key)
         if existing is not None and existing.component_class is not component_class:
+            if existing.source_path is not None and existing.source_path == source_path:
+                return component_class
             if _is_builtin_source_path(existing.source_path) and not _is_builtin_source_path(source_path):
                 _COMPONENT_REGISTRY[key] = RegisteredComponent(
                     category=category,

@@ -18,8 +18,10 @@ class ExampleTrainer(Trainer):
         metrics: dict[str, Any],
         context: TrainingContext,
     ) -> dict:
+        train_size = len(data.get("train", []))
+        context.tracker.log_metric("train_size", train_size, stage=context.stage)
         return {
             "status": "training_not_implemented",
-            "train_size": len(data.get("train", [])),
+            "train_size": train_size,
             "experiment": context.config.name,
         }

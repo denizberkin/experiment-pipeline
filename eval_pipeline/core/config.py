@@ -144,6 +144,21 @@ class MetricConfig(ComponentConfig):
 
 
 @dataclass(frozen=True)
+class TrackingConfig(ComponentConfig):
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any], *, config_dir: Path, section: str) -> "TrackingConfig":
+        component = ComponentConfig.from_mapping(raw, config_dir=config_dir, section=section, category="tracking")
+        return cls(
+            category=component.category,
+            path=component.path,
+            class_name=component.class_name,
+            name=component.name,
+            params=component.params,
+            metadata=component.metadata,
+        )
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     name: str
     config_path: Path
@@ -157,6 +172,7 @@ class ExperimentConfig:
     prediction: ComponentConfig | None = None
     losses: list[LossConfig] = field(default_factory=list)
     metrics: list[MetricConfig] = field(default_factory=list)
+    tracking: TrackingConfig = field(default_factory=lambda: TrackingConfig(category="tracking", name="local"))
     registry_paths: list[Path] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -164,7 +180,15 @@ class ExperimentConfig:
     def single_components(self) -> list[ComponentConfig]:
         return [
             component
-            for component in [self.data, self.model, self.training, self.validation, self.test, self.prediction]
+            for component in [
+                self.data,
+                self.model,
+                self.training,
+                self.validation,
+                self.test,
+                self.prediction,
+                self.tracking,
+            ]
             if component is not None
         ]
 
@@ -187,6 +211,7 @@ class ExperimentConfig:
             "prediction": self.prediction.to_dict() if self.prediction else None,
             "losses": [loss.to_dict() for loss in self.losses],
             "metrics": [metric.to_dict() for metric in self.metrics],
+            "tracking": self.tracking.to_dict(),
         }
 
 
@@ -239,6 +264,7 @@ def parse_experiment_config(raw: dict[str, Any], *, config_path: Path) -> Experi
         prediction=_optional_component(raw, config_dir=config_dir, section="prediction", category="prediction"),
         losses=_losses(raw, config_dir=config_dir),
         metrics=_metrics(raw, config_dir=config_dir),
+        tracking=_tracking(raw, config_dir=config_dir),
         raw=copy.deepcopy(raw),
     )
 
@@ -320,3 +346,31 @@ def _metrics(raw: dict[str, Any], *, config_dir: Path) -> list[MetricConfig]:
         MetricConfig.from_mapping(metric, config_dir=config_dir, section=f"metrics[{index}]")
         for index, metric in enumerate(raw_metrics)
     ]
+
+
+def _tracking(raw: dict[str, Any], *, config_dir: Path) -> TrackingConfig:
+    raw_tracking = raw.get("tracking")
+    if raw_tracking is None:
+        return TrackingConfig(category="tracking", name="local")
+    if not isinstance(raw_tracking, dict):
+        raise ConfigError("[tracking] must be a table/object when provided.")
+
+    tracking = copy.deepcopy(raw_tracking)
+    if "backend" in tracking:
+        if "name" in tracking:
+            raise ConfigError("[tracking] cannot define both 'name' and legacy 'backend'.")
+        tracking["name"] = tracking.pop("backend")
+
+    if "name" not in tracking and "class_name" not in tracking:
+        tracking["name"] = "local"
+
+    params = tracking.get("params", {})
+    if not isinstance(params, dict):
+        raise ConfigError("[tracking.params] must be a table/object when provided.")
+
+    for key in ("experiment_name", "run_name", "tracking_uri"):
+        if key in tracking:
+            params[key] = tracking.pop(key)
+    tracking["params"] = params
+
+    return TrackingConfig.from_mapping(tracking, config_dir=config_dir, section="tracking")
