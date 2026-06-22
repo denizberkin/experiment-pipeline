@@ -3,6 +3,9 @@ name = "example_builtin_components"
 seed = 42
 output_dir = "../runs"
 
+[tracking]
+name = "local"
+
 [registry]
 paths = [
   "../examples/components/data/example_data.py",

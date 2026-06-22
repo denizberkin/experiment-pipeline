@@ -3,6 +3,9 @@ name = "example_single_experiment"
 seed = 42
 output_dir = "../runs"
 
+[tracking]
+name = "local"
+
 [registry]
 paths = [
   "../examples/components/data/example_data.py",

@@ -1,0 +1,60 @@
+[experiment]
+name = "cifar10_basic"
+seed = 42
+output_dir = "../runs"
+
+[tracking]
+name = "local"
+
+[registry]
+paths = [
+  "../components/cifar10/data.py",
+  "../components/cifar10/model.py",
+  "../components/cifar10/training.py",
+  "../components/cifar10/validation.py",
+  "../components/cifar10/testing.py",
+  "../components/cifar10/loss.py",
+  "../components/cifar10/metric.py",
+]
+
+[data]
+name = "cifar10"
+
+[data.params]
+data_dir = "data/cifar10"
+batch_size = 32
+num_workers = 2
+validation_size = 5000
+download = true
+augment = true
+seed = 42
+
+[model]
+name = "cifar10"
+
+[model.params]
+dropout = 0.2
+num_classes = 10
+
+[training]
+name = "cifar10_torch_trainer"
+
+[training.params]
+epochs = 5
+learning_rate = 0.001
+weight_decay = 0.0001
+checkpoint_name = "cifar10_small_cnn.pt"
+
+[validation]
+name = "cifar10_validator"
+
+[test]
+name = "cifar10_tester"
+
+[[losses]]
+name = "torch_ce"
+weight = 1.0
+
+[[metrics]]
+name = "classification_accuracy"
+stages = ["training", "validation", "test"]
