@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Generic
 
 from eval_pipeline.interfaces.pipeline import PipelineComponent
-from eval_pipeline.interfaces.types import MetricValueT, PredictionT, TargetT
 
 
-class Metric(PipelineComponent, Generic[PredictionT, TargetT, MetricValueT]):
+class Metric[Prediction, Target, MetricValue](PipelineComponent):
     """Computes a metric from predictions and targets."""
 
     @abstractmethod
-    def update(self, prediction: PredictionT, target: TargetT) -> None:
+    def update(self, prediction: Prediction, target: Target) -> None:
         """Accumulate one batch or sample."""
 
     @abstractmethod
-    def compute(self) -> MetricValueT:
+    def compute(self) -> MetricValue:
         """Return the final metric value."""
 
     def reset(self) -> None:

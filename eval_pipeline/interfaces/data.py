@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Generic
 
 from eval_pipeline.interfaces.pipeline import PipelineComponent
-from eval_pipeline.interfaces.types import DataT
 
 
-class DataModule(PipelineComponent, Generic[DataT]):
+class DataModule[Data](PipelineComponent):
     """Builds data splits or loaders for an experiment."""
 
     @abstractmethod
-    def setup(self) -> DataT:
+    def setup(self) -> Data:
         """Return data needed by training, validation, testing, or prediction."""
