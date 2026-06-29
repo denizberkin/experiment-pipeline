@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ class MlflowExperimentTracker(ExperimentTracker):
         self.local.start(config, paths)
         self.mlflow = mlflow
         tracking_uri = self.params.get("tracking_uri")
+        _allow_file_store_if_needed(tracking_uri)
         if tracking_uri:
             mlflow.set_tracking_uri(str(tracking_uri))
         mlflow.set_experiment(str(self.params.get("experiment_name", config.name)))
@@ -78,3 +80,12 @@ class MlflowExperimentTracker(ExperimentTracker):
     def close(self) -> None:
         if self.mlflow.active_run() is not None:
             self.mlflow.end_run()
+
+
+"""
+This is an edge case where we need to set an environment variable 
+to **also** allow file-based tracking in MLflow.
+"""
+def _allow_file_store_if_needed(tracking_uri: Any) -> None:
+    if tracking_uri is not None and str(tracking_uri).startswith("file:"):
+        os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
