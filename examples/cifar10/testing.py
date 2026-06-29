@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import torch
+
 from eval_pipeline.components.testers.base import Tester
 from eval_pipeline.context import TestContext
 from eval_pipeline.registry import register_component
 
-from components.cifar10.common import compute_metrics, get_device, metric_fns, primary_loss, reset_metrics
+from examples.cifar10.common import compute_metrics, get_device, metric_fns, primary_loss, reset_metrics
 
 type Cifar10Data = dict[str, Any]
 type Cifar10Result = dict[str, Any]
@@ -23,11 +25,6 @@ class Cifar10Tester(Tester[Cifar10Data, Any, Cifar10Result]):
         metrics: dict[str, Any],
         context: TestContext,
     ) -> Cifar10Result:
-        try:
-            import torch
-        except ImportError as exc:
-            raise ImportError("CIFAR-10 tester requires torch.") from exc
-
         device = get_device(self.params.get("device"))
         model = model.to(device)
         model.eval()

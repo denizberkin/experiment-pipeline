@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import torch
+
 from eval_pipeline.components.trainers.base import Trainer
 from eval_pipeline.context import TrainingContext
 from eval_pipeline.registry import register_component
 
-from components.cifar10.common import (
+from examples.cifar10.common import (
     compute_metrics,
     get_device,
     metric_fns,
@@ -30,11 +32,6 @@ class Cifar10TorchTrainer(Trainer[Cifar10Data, Any, Cifar10Result]):
         metrics: dict[str, Any],
         context: TrainingContext,
     ) -> Cifar10Result:
-        try:
-            import torch
-        except ImportError as exc:
-            raise ImportError("CIFAR-10 trainer requires torch.") from exc
-
         device = get_device(self.params.get("device"))
         epochs = int(self.params.get("epochs", 5))
         learning_rate = float(self.params.get("learning_rate", 1e-3))

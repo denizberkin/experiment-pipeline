@@ -6,5 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
 
+[project.optional-dependencies]
+cifar10 = ["torch", "torchvision"]
+mlflow = ["mlflow"]
+
 [project.scripts]
 eval-pipeline = "eval_pipeline.cli:main"

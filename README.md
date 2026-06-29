@@ -258,9 +258,32 @@ or:
 python main.py validate configs/example.toml --check-imports
 ```
 
+## Run Stages
+
+Run training, validation, and test in one shared run:
+
+```bash
+python main.py run configs/cifar10_basic.toml --stages training validation test
+```
+
+Run test only with a saved model checkpoint by adding it to the config:
+
+```toml
+[model.params]
+dropout = 0.2
+num_classes = 10
+checkpoint = "../runs/cifar10_basic/artifacts/cifar10_small_cnn.pt"
+```
+
+```bash
+python main.py run configs/cifar10_basic.toml --stages test
+```
+
+Without `--stages`, `run` keeps the old behavior and runs only `[test]`.
+
 ## CIFAR-10 Components
 
-`components/cifar10/` contains a basic PyTorch CIFAR-10 classifier component set:
+`examples/cifar10/` contains a basic PyTorch CIFAR-10 classifier component set:
 
 - `cifar10_data`
 - `cifar10_small_cnn`
