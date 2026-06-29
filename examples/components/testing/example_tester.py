@@ -6,18 +6,22 @@ from eval_pipeline.components.testers.base import Tester
 from eval_pipeline.context import TestContext
 from eval_pipeline.registry import register_component
 
+type ToyData = dict[str, list[int]]
+type ToyModel = dict[str, str]
+type ToyResult = dict[str, object]
+
 
 @register_component("toy_tester", category="test")
-class ExampleTester(Tester):
+class ExampleTester(Tester[ToyData, ToyModel, ToyResult]):
     def test(
         self,
         *,
-        data: Any,
-        model: Any,
+        data: ToyData,
+        model: ToyModel,
         losses: dict[str, Any],
         metrics: dict[str, Any],
         context: TestContext,
-    ) -> dict:
+    ) -> ToyResult:
         test_size = len(data.get("test", []))
         context.tracker.log_metric("test_size", test_size, stage=context.stage)
         return {

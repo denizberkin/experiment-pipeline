@@ -7,6 +7,6 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("mae_loss", category="loss")
-class ExampleLoss(Loss):
+class ExampleLoss(Loss[Any, Any, float]):
     def __call__(self, prediction: Any, target: Any) -> float:
         return abs(float(prediction) - float(target))

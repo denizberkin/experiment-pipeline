@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
 from eval_pipeline.components.models.base import ModelFactory
 from eval_pipeline.registry import register_component
 
 
 @register_component("cifar10", category="model")
-class Cifar10SmallCnnFactory(ModelFactory):
-    def build(self):
+class Cifar10SmallCnnFactory(ModelFactory[Any]):
+    def build(self) -> Any:
         try:
             import torch.nn as nn
         except ImportError as exc:

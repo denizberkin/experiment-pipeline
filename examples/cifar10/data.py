@@ -12,10 +12,12 @@ except ImportError as exc:
 from eval_pipeline.components.data.base import DataModule
 from eval_pipeline.registry import register_component
 
+type Cifar10Data = dict[str, Any]
+
 
 @register_component("cifar10", category="data")
-class Cifar10DataModule(DataModule):
-    def setup(self) -> dict[str, Any]:
+class Cifar10DataModule(DataModule[Cifar10Data]):
+    def setup(self) -> Cifar10Data:
         data_dir = str(self.params.get("data_dir", "data"))
         batch_size = int(self.params.get("batch_size", 128))
         num_workers = int(self.params.get("num_workers", 2))

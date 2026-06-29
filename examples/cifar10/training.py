@@ -15,18 +15,21 @@ from components.cifar10.common import (
     save_checkpoint,
 )
 
+type Cifar10Data = dict[str, Any]
+type Cifar10Result = dict[str, Any]
+
 
 @register_component("cifar10_torch_trainer", category="training")
-class Cifar10TorchTrainer(Trainer):
+class Cifar10TorchTrainer(Trainer[Cifar10Data, Any, Cifar10Result]):
     def train(
         self,
         *,
-        data: dict[str, Any],
+        data: Cifar10Data,
         model: Any,
         losses: dict[str, Any],
         metrics: dict[str, Any],
         context: TrainingContext,
-    ) -> dict[str, Any]:
+    ) -> Cifar10Result:
         try:
             import torch
         except ImportError as exc:

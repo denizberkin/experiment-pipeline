@@ -7,7 +7,7 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("torch_ce", category="loss")
-class TorchCrossEntropyLoss(Loss):
+class TorchCrossEntropyLoss(Loss[Any, Any, Any]):
     def __init__(self, **params: Any) -> None:
         super().__init__(**params)
         self._loss = None

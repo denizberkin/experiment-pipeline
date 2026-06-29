@@ -7,7 +7,7 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("mae", category="metric")
-class ExampleMetric(Metric):
+class ExampleMetric(Metric[Any, Any, float]):
     def __init__(self, **params: Any) -> None:
         super().__init__(**params)
         self.values: list[float] = []
