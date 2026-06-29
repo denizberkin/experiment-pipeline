@@ -8,7 +8,7 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("mse", category="loss")
-class MeanSquaredErrorLoss(Loss):
+class MeanSquaredErrorLoss(Loss[Any, Any, float]):
     def __call__(self, prediction: Any, target: Any) -> float:
         pairs = list(zip(_flatten_numbers(prediction), _flatten_numbers(target), strict=True))
         if not pairs:

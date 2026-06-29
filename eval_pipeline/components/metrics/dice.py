@@ -8,7 +8,7 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("dice", category="metric")
-class DiceScore(Metric):
+class DiceScore(Metric[Any, Any, float]):
     def __init__(self, **params: Any) -> None:
         super().__init__(**params)
         self.threshold = float(params.get("threshold", 0.5))

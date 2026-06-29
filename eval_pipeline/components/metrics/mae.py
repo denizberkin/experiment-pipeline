@@ -8,7 +8,7 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("mae", category="metric")
-class MeanAbsoluteError(Metric):
+class MeanAbsoluteError(Metric[Any, Any, float]):
     def __init__(self, **params: Any) -> None:
         super().__init__(**params)
         self._absolute_errors: list[float] = []

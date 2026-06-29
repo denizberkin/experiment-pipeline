@@ -8,7 +8,7 @@ from eval_pipeline.registry import register_component
 
 
 @register_component("mse", category="metric")
-class MeanSquaredError(Metric):
+class MeanSquaredError(Metric[Any, Any, float]):
     def __init__(self, **params: Any) -> None:
         super().__init__(**params)
         self._squared_errors: list[float] = []
