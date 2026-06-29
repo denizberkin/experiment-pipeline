@@ -8,13 +8,13 @@ name = "local"
 
 [registry]
 paths = [
-  "../components/cifar10/data.py",
-  "../components/cifar10/model.py",
-  "../components/cifar10/training.py",
-  "../components/cifar10/validation.py",
-  "../components/cifar10/testing.py",
-  "../components/cifar10/loss.py",
-  "../components/cifar10/metric.py",
+  "../examples/cifar10/data.py",
+  "../examples/cifar10/model.py",
+  "../examples/cifar10/training.py",
+  "../examples/cifar10/validation.py",
+  "../examples/cifar10/testing.py",
+  "../examples/cifar10/loss.py",
+  "../examples/cifar10/metric.py",
 ]
 
 [data]

@@ -8,6 +8,8 @@ from pathlib import Path
 from eval_pipeline.core.config import load_experiment_config
 from eval_pipeline.core.registry import validate_component_imports
 
+RUN_STAGES = ("training", "validation", "test")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="eval-pipeline")
@@ -21,8 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Import configured component classes to catch path/class errors early.",
     )
 
-    run = subparsers.add_parser("run", help="Run a configured experiment test stage.")
+    run = subparsers.add_parser("run", help="Run configured experiment stages.")
     run.add_argument("config", type=Path, help="Path to a TOML or JSON experiment config.")
+    run.add_argument(
+        "--stages",
+        nargs="+",
+        choices=RUN_STAGES,
+        help="Stages to run in order. Defaults to test only.",
+    )
 
     return parser
 
@@ -43,7 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         config = load_experiment_config(args.config)
         _add_default_import_roots(config)
-        result = _run_test_stage(config)
+        stages = args.stages or ["test"]
+        result = _run_stages(config, stages)
+        if args.stages is None:
+            result = result["test"]
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
@@ -65,11 +76,12 @@ def _add_default_import_roots(config) -> None:
         sys.path.insert(0, root_str)
 
 
-def _run_test_stage(config) -> dict:
-    if config.test is None:
-        raise ValueError("Config must define [test] to use the run command.")
+def _run_stages(config, stages: list[str]) -> dict[str, dict]:
+    for stage in stages:
+        if getattr(config, stage) is None:
+            raise ValueError(f"Config must define [{stage}] to run the {stage} stage.")
 
-    validate_component_imports(config.all_components, registry_paths=config.registry_paths)
+    validate_component_imports(_components_for_stages(config, stages), registry_paths=config.registry_paths)
 
     # only import on run
     from eval_pipeline.components.data.build import build_data_module
@@ -77,17 +89,58 @@ def _run_test_stage(config) -> dict:
     from eval_pipeline.components.metrics.build import build_metrics
     from eval_pipeline.components.models.build import build_model_factory
     from eval_pipeline.components.testers.build import build_tester
-    from eval_pipeline.context import build_experiment_paths, build_experiment_tracker, make_test_context
+    from eval_pipeline.components.trainers.build import build_trainer
+    from eval_pipeline.components.validators.build import build_validator
+    from eval_pipeline.context import (
+        build_experiment_paths,
+        build_experiment_tracker,
+        make_test_context,
+        make_training_context,
+        make_validation_context,
+    )
 
     paths = build_experiment_paths(config)
     tracker = build_experiment_tracker(config, paths)
+    state = {}
     try:
-        context = make_test_context(config, tracker=tracker)
         data = build_data_module(config.data).setup()
         model = build_model_factory(config.model).build()
         losses = build_losses(config.losses)
         metrics = build_metrics(config.metrics)
-        tester = build_tester(config.test)
-        return tester.test(data=data, model=model, losses=losses, metrics=metrics, context=context)
+        results = {}
+
+        if "training" in stages:
+            context = make_training_context(config, tracker=tracker, state=state)
+            trainer = build_trainer(config.training)
+            results["training"] = trainer.train(data=data, model=model, losses=losses, metrics=metrics, context=context)
+            model = state.get("model", model)
+
+        if "validation" in stages:
+            context = make_validation_context(config, tracker=tracker, state=state)
+            validator = build_validator(config.validation)
+            results["validation"] = validator.validate(data=data, model=model, losses=losses, metrics=metrics, context=context)
+            model = state.get("model", model)
+
+        if "test" in stages:
+            context = make_test_context(config, tracker=tracker, state=state)
+            tester = build_tester(config.test)
+            results["test"] = tester.test(data=data, model=model, losses=losses, metrics=metrics, context=context)
+
+        return results
     finally:
         tracker.close()
+
+
+def _components_for_stages(config, stages: list[str]) -> list:
+    return [
+        component
+        for component in [
+            config.data,
+            config.model,
+            config.tracking,
+            *config.losses,
+            *config.metrics,
+            *(getattr(config, stage) for stage in stages),
+        ]
+        if component is not None
+    ]
