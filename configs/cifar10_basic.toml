@@ -43,7 +43,8 @@ name = "cifar10_torch_trainer"
 epochs = 5
 learning_rate = 0.001
 weight_decay = 0.0001
-checkpoint_name = "cifar10_small_cnn.pt"
+save_checkpoint = "cifar10_small_cnn.pt"
+checkpoint_frequency = 0
 
 [validation]
 name = "cifar10_validator"

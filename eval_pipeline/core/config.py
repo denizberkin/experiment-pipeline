@@ -3,9 +3,12 @@ from __future__ import annotations
 import copy
 import json
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+
+
+DeviceConfig = str | list[int | str]
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,7 @@ class ExperimentConfig:
     name: str
     config_path: Path
     seed: int | None
+    device: DeviceConfig | None
     output_dir: Path
     data: ComponentConfig
     model: ComponentConfig
@@ -201,6 +205,7 @@ class ExperimentConfig:
             "name": self.name,
             "config_path": str(self.config_path),
             "seed": self.seed,
+            "device": copy.deepcopy(self.device),
             "output_dir": str(self.output_dir),
             "registry_paths": [str(path) for path in self.registry_paths],
             "data": self.data.to_dict(),
@@ -241,6 +246,7 @@ def parse_experiment_config(raw: dict[str, Any], *, config_path: Path) -> Experi
     seed = experiment.get("seed")
     if seed is not None and not isinstance(seed, int):
         raise ConfigError("[experiment.seed] must be an integer when provided.")
+    device = _experiment_device(experiment)
 
     output_dir_raw = experiment.get("output_dir", "runs")
     if not isinstance(output_dir_raw, str) or not output_dir_raw:
@@ -250,23 +256,61 @@ def parse_experiment_config(raw: dict[str, Any], *, config_path: Path) -> Experi
         output_dir = config_dir / output_dir
     registry_paths = _registry_paths(raw, config_dir=config_dir)
 
+    data = _required_component(raw, config_dir=config_dir, section="data", category="data")
+    model = _with_default_device(
+        _required_component(raw, config_dir=config_dir, section="model", category="model"), device
+    )
+    training = _with_default_device(
+        _optional_component(raw, config_dir=config_dir, section="training", category="training"), device
+    )
+    validation = _with_default_device(
+        _optional_component(raw, config_dir=config_dir, section="validation", category="validation"), device
+    )
+    test = _with_default_device(_optional_component(raw, config_dir=config_dir, section="test", category="test"), device)
+    prediction = _with_default_device(
+        _optional_component(raw, config_dir=config_dir, section="prediction", category="prediction"), device
+    )
+    losses = [_with_default_device(loss, device) for loss in _losses(raw, config_dir=config_dir)]
+    metrics = [_with_default_device(metric, device) for metric in _metrics(raw, config_dir=config_dir)]
+
     return ExperimentConfig(
         name=name,
         config_path=config_path,
         seed=seed,
+        device=device,
         output_dir=output_dir.resolve(),
         registry_paths=registry_paths,
-        data=_required_component(raw, config_dir=config_dir, section="data", category="data"),
-        model=_required_component(raw, config_dir=config_dir, section="model", category="model"),
-        training=_optional_component(raw, config_dir=config_dir, section="training", category="training"),
-        validation=_optional_component(raw, config_dir=config_dir, section="validation", category="validation"),
-        test=_optional_component(raw, config_dir=config_dir, section="test", category="test"),
-        prediction=_optional_component(raw, config_dir=config_dir, section="prediction", category="prediction"),
-        losses=_losses(raw, config_dir=config_dir),
-        metrics=_metrics(raw, config_dir=config_dir),
+        data=data,
+        model=model,
+        training=training,
+        validation=validation,
+        test=test,
+        prediction=prediction,
+        losses=losses,
+        metrics=metrics,
         tracking=_tracking(raw, config_dir=config_dir),
         raw=copy.deepcopy(raw),
     )
+
+
+def _experiment_device(experiment: dict[str, Any]) -> DeviceConfig | None:
+    device = experiment.get("device")
+    if device is None:
+        return None
+    if isinstance(device, str) and device:
+        return device
+    if isinstance(device, list) and device:
+        if all(isinstance(item, int) or (isinstance(item, str) and item) for item in device):
+            return copy.deepcopy(device)
+    raise ConfigError("[experiment.device] must be a non-empty string or non-empty list of GPU ids/device strings.")
+
+
+def _with_default_device[T: ComponentConfig](component: T | None, device: DeviceConfig | None) -> T | None:
+    if component is None or device is None or "device" in component.params:
+        return component
+    params = copy.deepcopy(component.params)
+    params["device"] = copy.deepcopy(device)
+    return replace(component, params=params)
 
 
 def _load_raw_config(config_path: Path) -> dict[str, Any]:
