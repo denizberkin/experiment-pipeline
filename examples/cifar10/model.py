@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-import torch
 import torch.nn as nn
 
 from eval_pipeline.components.models.base import ModelFactory
@@ -39,7 +37,4 @@ class Cifar10SmallCnnFactory(ModelFactory[Any]):
             nn.Dropout(dropout),
             nn.Linear(256, num_classes),
         )
-        checkpoint = self.params.get("checkpoint")
-        if checkpoint:
-            model.load_state_dict(torch.load(Path(checkpoint).expanduser(), map_location="cpu"))
-        return model
+        return self.load(model)

@@ -36,12 +36,16 @@ class Cifar10TorchTrainer(Trainer[Cifar10Data, Any, Cifar10Result]):
         epochs = int(self.params.get("epochs", 5))
         learning_rate = float(self.params.get("learning_rate", 1e-3))
         weight_decay = float(self.params.get("weight_decay", 1e-4))
-        checkpoint_name = str(self.params.get("checkpoint_name", "cifar10_model.pt"))
+        save_checkpoint_path = str(self.params.get("save_checkpoint", "cifar10_model.pt"))
+        checkpoint_frequency = int(self.params.get("checkpoint_frequency", 0))
+        if checkpoint_frequency < 0:
+            raise ValueError("checkpoint_frequency must be 0 or a positive integer.")
 
         model = model.to(device)
         loss_fn = primary_loss(losses)
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         train_metrics = metric_fns(metrics, "training")
+        checkpoint = None
 
         for epoch in range(1, epochs + 1):
             model.train()
@@ -69,13 +73,21 @@ class Cifar10TorchTrainer(Trainer[Cifar10Data, Any, Cifar10Result]):
             for name, value in compute_metrics(train_metrics).items():
                 context.tracker.log_metric(name, value, step=epoch, stage=context.stage)
 
-        checkpoint = save_checkpoint(model, context.paths.artifacts_dir / checkpoint_name)
-        context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
+            if _should_save_checkpoint(epoch=epoch, epochs=epochs, checkpoint_frequency=checkpoint_frequency):
+                checkpoint = save_checkpoint(model, context.paths.artifacts_dir / save_checkpoint_path)
+                context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
+
         context.state["model"] = model
-        context.state["checkpoint"] = str(checkpoint)
+        context.state["checkpoint"] = str(checkpoint) if checkpoint else None
 
         return {
             "epochs": epochs,
             "device": str(device),
-            "checkpoint": str(checkpoint),
+            "checkpoint": str(checkpoint) if checkpoint else None,
         }
+
+
+def _should_save_checkpoint(*, epoch: int, epochs: int, checkpoint_frequency: int) -> bool:
+    if checkpoint_frequency == 0:
+        return epoch == epochs
+    return epoch % checkpoint_frequency == 0

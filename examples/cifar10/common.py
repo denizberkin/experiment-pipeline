@@ -6,11 +6,17 @@ from typing import Any
 import torch
 
 
-def get_device(preferred: str | None = None):
-
-    if preferred:
+def get_device(preferred: Any = None):
+    if not preferred:
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if not isinstance(preferred, list):
         return torch.device(preferred)
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+    first = preferred[0]
+    if not isinstance(first, int):
+        return torch.device(first)
+    return torch.device(f"cuda:{first}")
+        
 
 
 def primary_loss(losses: dict[str, Any]):

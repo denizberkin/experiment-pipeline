@@ -2,6 +2,8 @@
 .agents/
 .vscode/
 *__pycache__/
+data/*
+docs/*
 
 *.pyc
 *.csv
