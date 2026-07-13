@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from eval_pipeline.context import TestContext
 from eval_pipeline.interfaces.pipeline import PipelineComponent
+
+if TYPE_CHECKING:
+    from eval_pipeline.context import TestContext
 
 
 class Tester[Data, Model, Result](PipelineComponent):
