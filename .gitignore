@@ -4,7 +4,13 @@
 *__pycache__/
 data/*
 docs/*
+runs/*
+mlruns/*
 
 *.pyc
 *.csv
 *.log
+
+*.db
+*.db-shm
+*.db-wal

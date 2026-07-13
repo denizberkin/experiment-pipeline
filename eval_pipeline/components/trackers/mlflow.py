@@ -26,7 +26,6 @@ class MlflowExperimentTracker(ExperimentTracker):
         self.config = config
         self.local = LocalExperimentTracker()
         self.local.start(config, paths)
-        self.mlflow = mlflow
         tracking_uri = self.params.get("tracking_uri")
         _allow_file_store_if_needed(tracking_uri)
         if tracking_uri:
@@ -52,14 +51,12 @@ class MlflowExperimentTracker(ExperimentTracker):
         numeric_value = as_number(value)
         if numeric_value is not None:
             self.mlflow.log_metric(tracking_key("metric", name, stage), numeric_value, step=step)
-        self.mlflow.log_artifact(str(self.local.metrics_log), artifact_path="tracking")
 
     def log_loss(self, name: str, value: Any, *, step: int | None = None, stage: str | None = None) -> None:
         self.local.log_loss(name, value, step=step, stage=stage)
         numeric_value = as_number(value)
         if numeric_value is not None:
             self.mlflow.log_metric(tracking_key("loss", name, stage), numeric_value, step=step)
-        self.mlflow.log_artifact(str(self.local.losses_log), artifact_path="tracking")
 
     def log_artifact(self, path: str | Path, *, artifact_path: str | None = None) -> Path | None:
         copied_path = self.local.log_artifact(path, artifact_path=artifact_path)
@@ -79,6 +76,10 @@ class MlflowExperimentTracker(ExperimentTracker):
 
     def close(self) -> None:
         if self.mlflow.active_run() is not None:
+            if self.local.metrics_log.exists():
+                self.mlflow.log_artifact(str(self.local.metrics_log), artifact_path="tracking")
+            if self.local.losses_log.exists():
+                self.mlflow.log_artifact(str(self.local.losses_log), artifact_path="tracking")
             self.mlflow.end_run()
 
 

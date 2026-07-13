@@ -13,11 +13,10 @@ except ImportError:
     nn = None
 
 from eval_pipeline.components.models.base import ModelFactory
-from eval_pipeline.interfaces.model import _torch_load_device
+from eval_pipeline.utils.device import torch_load_device
 
 
 if torch is not None:
-
     class CheckpointFactory(ModelFactory[nn.Module]):
         def build(self):
             return nn.Linear(1, 1)
@@ -85,11 +84,11 @@ class ModelFactoryCheckpointTests(unittest.TestCase):
 
 class TorchLoadDeviceTests(unittest.TestCase):
     def test_torch_load_device_converts_config_values(self):
-        self.assertIsNone(_torch_load_device(None))
-        self.assertEqual(_torch_load_device("cpu"), "cpu")
-        self.assertEqual(_torch_load_device("cuda:1"), "cuda:1")
-        self.assertEqual(_torch_load_device([0, 1]), "cuda:0")
-        self.assertEqual(_torch_load_device(["cuda:2", "cuda:3"]), "cuda:2")
+        self.assertIsNone(torch_load_device(None))
+        self.assertEqual(torch_load_device("cpu"), "cpu")
+        self.assertEqual(torch_load_device("cuda:1"), "cuda:1")
+        self.assertEqual(torch_load_device([0, 1]), "cuda:0")
+        self.assertEqual(torch_load_device(["cuda:2", "cuda:3"]), "cuda:2")
 
 
 if __name__ == "__main__":
