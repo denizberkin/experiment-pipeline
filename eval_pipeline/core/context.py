@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from eval_pipeline.core.config import ExperimentConfig
-from eval_pipeline.components.trackers.build import build_experiment_tracker
 
 if TYPE_CHECKING:
     from eval_pipeline.interfaces.tracking import ExperimentTracker
@@ -127,4 +126,6 @@ def make_prediction_context(
 
 
 def _build_experiment_tracker(config: ExperimentConfig, paths: ExperimentPaths) -> ExperimentTracker:
+    from eval_pipeline.components.trackers.build import build_experiment_tracker
+
     return build_experiment_tracker(config, paths)
