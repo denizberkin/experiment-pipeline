@@ -23,6 +23,7 @@ class MlflowExperimentTracker(ExperimentTracker):
         except ImportError as exc:
             raise ConfigError("MLflow tracking requires installing the optional 'mlflow' dependency.") from exc
 
+        self.mlflow = mlflow
         self.config = config
         self.local = LocalExperimentTracker()
         self.local.start(config, paths)
