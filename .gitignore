@@ -6,6 +6,7 @@ data/*
 docs/*
 runs/*
 mlruns/*
+checkpoint/*
 
 *.pyc
 *.csv

@@ -12,3 +12,6 @@ mlflow = ["mlflow"]
 
 [project.scripts]
 eval-pipeline = "eval_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["eval_pipeline*"]
