@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from importlib.util import find_spec
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,7 @@ class MlflowTrackerTests(unittest.TestCase):
             else:
                 os.environ.pop("MLFLOW_ALLOW_FILE_STORE", None)
 
+    @unittest.skipIf(find_spec("mlflow") is None, "mlflow is not installed")
     def test_tracker_starts_and_closes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

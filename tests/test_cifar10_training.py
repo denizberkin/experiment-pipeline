@@ -4,9 +4,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from examples.cifar10.training import _should_save_checkpoint
+try:
+    import torch
+except ImportError:
+    torch = None
+
+if torch is None:
+    _should_save_checkpoint = None
+else:
+    from examples.cifar10.training import _should_save_checkpoint
 
 
+@unittest.skipIf(torch is None, "torch is not installed")
 class Cifar10TrainingTests(unittest.TestCase):
     def test_checkpoint_frequency_zero_saves_only_last_epoch(self):
         self.assertFalse(_should_save_checkpoint(epoch=1, epochs=3, checkpoint_frequency=0))

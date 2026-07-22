@@ -82,10 +82,10 @@ class StageTester(Tester[dict[str, int], dict[str, str], dict[str, object]]):
                 f'''
 [experiment]
 name = "stage_run"
-output_dir = "{root / "runs"}"
+output_dir = "{(root / "runs").as_posix()}"
 
 [registry]
-paths = ["{components}"]
+paths = ["{components.as_posix()}"]
 
 [data]
 name = "stage_data"
@@ -156,10 +156,10 @@ class TestOnlyTester(Tester[dict[str, int], dict[str, str], dict[str, object]]):
                 f'''
 [experiment]
 name = "test_only"
-output_dir = "{root / "runs"}"
+output_dir = "{(root / "runs").as_posix()}"
 
 [registry]
-paths = ["{components}"]
+paths = ["{components.as_posix()}"]
 
 [data]
 name = "test_only_data"
@@ -214,10 +214,10 @@ class ValidateModel(ModelFactory[dict[str, str]]):
                 f'''
 [experiment]
 name = "validate_imports"
-output_dir = "{root / "runs"}"
+output_dir = "{(root / "runs").as_posix()}"
 
 [registry]
-paths = ["{components}"]
+paths = ["{components.as_posix()}"]
 
 [data]
 name = "validate_data"

@@ -9,7 +9,10 @@ try:
 except ImportError:
     torch = None
 
-from examples.cifar10.common import get_device
+if torch is None:
+    get_device = None
+else:
+    from examples.cifar10.common import get_device
 
 
 @unittest.skipIf(torch is None, "torch is not installed")
