@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from eval_pipeline.components.models.base import ModelFactory
 from eval_pipeline.registry import register_component
+from examples.cifar10.common import load_model
 
 
 @register_component("cifar10", category="model")
@@ -37,4 +38,8 @@ class Cifar10SmallCnnFactory(ModelFactory[Any]):
             nn.Dropout(dropout),
             nn.Linear(256, num_classes),
         )
-        return self.load(model)
+        return load_model(
+            model,
+            checkpoint=self.params.get("checkpoint"),
+            device=self.params.get("device"),
+        )

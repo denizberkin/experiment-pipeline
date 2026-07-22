@@ -11,12 +11,21 @@ def get_device(preferred: Any = None):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if not isinstance(preferred, list):
         return torch.device(preferred)
-        
+
     first = preferred[0]
     if not isinstance(first, int):
         return torch.device(first)
     return torch.device(f"cuda:{first}")
-        
+
+
+def load_model(model: Any, *, checkpoint: str | Path | None = None, device: Any = None) -> Any:
+    load_device = get_device(device) if device is not None else None
+    if checkpoint:
+        state = torch.load(Path(checkpoint).expanduser(), map_location=load_device)
+        model.load_state_dict(state)
+    if load_device is not None:
+        model.to(load_device)
+    return model
 
 
 def primary_loss(losses: dict[str, Any]):
