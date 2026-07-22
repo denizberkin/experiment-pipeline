@@ -18,17 +18,31 @@ An experiment wires together `data`, `model`, and the CLI stages it needs: `trai
 
 ## Try it
 
-The toy example has no third-party runtime dependencies:
+Python 3.13 or newer is required. The toy example has no third-party runtime dependencies:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+```
+
+Activate it with `source .venv/bin/activate` on macOS/Linux or `.\.venv\Scripts\Activate.ps1` in Windows PowerShell, then run:
+
+```bash
 pip install -e .
 python -m eval_pipeline validate configs/example.toml --check-imports
 python -m eval_pipeline run configs/example.toml --stages training validation test
 ```
 
 For the PyTorch example, install `pip install -e ".[cifar10]"` and use `configs/cifar10_basic.toml`.
+
+## Test
+
+The core suite uses the standard library and skips optional PyTorch or MLflow checks when those packages are absent:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs this suite on Linux and Windows.
 
 ## Configure an experiment
 
@@ -76,7 +90,7 @@ eval-pipeline run configs/example.toml --stages training validation test
 eval-pipeline run configs/example.toml --stages test
 ```
 
-Without a `[tracking]` section, the local tracker stores the source and resolved configs, JSONL logs, artifacts, and serialized models under `runs/<experiment-name>/`. MLflow is available with `pip install -e ".[mlflow]"` and `name = "mlflow"` in `[tracking]`.
+Without a `[tracking]` section, the local tracker stores the source and resolved configs, JSONL logs, artifacts, and serialized models under `runs/<experiment-name>/`. It refuses to reuse an existing experiment directory, so give each run a unique experiment name or archive the previous output first. MLflow is available with `pip install -e ".[mlflow]"` and `name = "mlflow"` in `[tracking]`.
 
 Components receive a stage-specific context for shared state and logging:
 
@@ -97,8 +111,13 @@ For each new project:
 
 - Rename the package metadata in `pyproject.toml`.
 - Choose the supported Python version in `pyproject.toml` and `.python-version`.
+- Update the MIT license copyright notice if needed.
 - Add project components and configs; keep `eval_pipeline/` as the reusable runner.
 - Remove the toy or CIFAR-10 examples if they are no longer useful.
 - Replace this README with the project's purpose and commands.
 
 GitHub templates do not substitute names inside files. Keep the manual checklist above, or add Copier/Cookiecutter only if automatic renaming becomes worth maintaining.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
