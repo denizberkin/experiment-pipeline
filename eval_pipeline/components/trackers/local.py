@@ -73,7 +73,13 @@ class LocalExperimentTracker(ExperimentTracker):
         return target
 
     def _prepare_dirs(self) -> None:
-        self.paths.experiment_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.paths.experiment_dir.mkdir(parents=True)
+        except FileExistsError as exc:
+            raise FileExistsError(
+                f"Experiment output already exists: {self.paths.experiment_dir}. "
+                "Choose a unique [experiment].name or archive the existing output."
+            ) from exc
         self.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.paths.logs_dir.mkdir(parents=True, exist_ok=True)
 
