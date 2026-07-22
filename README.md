@@ -33,6 +33,7 @@ python -m eval_pipeline run configs/example.toml --stages training validation te
 ```
 
 For the PyTorch example, install `pip install -e ".[cifar10]"` and use `configs/cifar10_basic.toml`.
+Reusable state-dict helpers are available as `load_torch_checkpoint` and `save_torch_checkpoint` from `eval_pipeline.components.models`; install `pip install -e ".[torch]"` to use them.
 
 ## Test
 

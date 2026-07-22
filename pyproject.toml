@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [project.optional-dependencies]
+torch = ["torch"]
 cifar10 = ["torch", "torchvision"]
 mlflow = ["mlflow"]
 
