@@ -5,6 +5,8 @@ from typing import Any
 
 import torch
 
+from eval_pipeline.components.models import load_torch_checkpoint
+
 
 def get_device(preferred: Any = None):
     if not preferred:
@@ -21,8 +23,7 @@ def get_device(preferred: Any = None):
 def load_model(model: Any, *, checkpoint: str | Path | None = None, device: Any = None) -> Any:
     load_device = get_device(device) if device is not None else None
     if checkpoint:
-        state = torch.load(Path(checkpoint).expanduser(), map_location=load_device)
-        model.load_state_dict(state)
+        load_torch_checkpoint(model, checkpoint, map_location=load_device or "cpu")
     if load_device is not None:
         model.to(load_device)
     return model
@@ -53,9 +54,3 @@ def reset_metrics(metrics: dict[str, Any]) -> None:
 
 def compute_metrics(metrics: dict[str, Any]) -> dict[str, float]:
     return {name: float(metric.compute()) for name, metric in metrics.items()}
-
-
-def save_checkpoint(model: Any, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), path)
-    return path

@@ -4,6 +4,7 @@ from typing import Any
 
 import torch
 
+from eval_pipeline.components.models import save_torch_checkpoint
 from eval_pipeline.components.trainers.base import Trainer
 from eval_pipeline.context import TrainingContext
 from eval_pipeline.registry import register_component
@@ -14,7 +15,6 @@ from examples.cifar10.common import (
     metric_fns,
     primary_loss,
     reset_metrics,
-    save_checkpoint,
 )
 
 type Cifar10Data = dict[str, Any]
@@ -74,7 +74,7 @@ class Cifar10TorchTrainer(Trainer[Cifar10Data, Any, Cifar10Result]):
                 context.tracker.log_metric(name, value, step=epoch, stage=context.stage)
 
             if _should_save_checkpoint(epoch=epoch, epochs=epochs, checkpoint_frequency=checkpoint_frequency):
-                checkpoint = save_checkpoint(model, context.paths.artifacts_dir / save_checkpoint_path)
+                checkpoint = save_torch_checkpoint(model, context.paths.artifacts_dir / save_checkpoint_path)
                 context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
 
         context.state["model"] = model
