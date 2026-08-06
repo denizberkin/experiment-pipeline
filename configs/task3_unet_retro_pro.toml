@@ -1,0 +1,81 @@
+[experiment]
+name = "task3_unet_retro_pro"
+seed = 0
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "mrixfields-task3-unet"
+run_name = "task3_unet_retro_pro"
+tracking_uri = "sqlite:///mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_paired"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [512, 512]
+batch_size = 2
+num_workers = 4
+seed = 0
+include_retro = true
+use_preprocessed = true
+require_complete = true
+retrospective_split = "retro_train"
+prospective_split = "pro_train"
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+input_channels = 1
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 200000
+pretrain_learning_rate = 0.0001
+pretrain_beta1 = 0.0
+pretrain_beta2 = 0.99
+pretrain_weight_decay = 0.0001
+mask_ratio = 0.5
+mask_patch_size = 16
+pretrain_save_every = 10000
+pretrain_print_every = 1000
+epochs = 50
+learning_rate = 0.00005
+beta1 = 0.5
+beta2 = 0.999
+save_every = 10
+amp = true
+progress = true
+progress_interval = 5.0
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.1
+
+[losses.params]
+net = "alex"

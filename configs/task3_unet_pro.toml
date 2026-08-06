@@ -1,0 +1,73 @@
+[experiment]
+name = "task3_unet_pro"
+seed = 0
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "mrixfields-task3-unet"
+run_name = "task3_unet_pro"
+tracking_uri = "sqlite:///mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_paired"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 4
+num_workers = 2
+seed = 0
+include_retro = false
+use_preprocessed = true
+require_complete = true
+prospective_split = "pro_train"
+horizontal_flip = 0.5
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+input_channels = 1
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0
+epochs = 10
+learning_rate = 0.0001
+beta1 = 0.9
+beta2 = 0.999
+save_every = 1
+amp = true
+progress = true
+progress_interval = 5.0
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"
