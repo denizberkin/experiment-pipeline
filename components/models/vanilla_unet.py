@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,60 +8,74 @@ from eval_pipeline.components.models.base import ModelFactory
 from eval_pipeline.registry import register_component
 
 
-class _ConvBlock(nn.Sequential):
+class _DoubleConv(nn.Sequential):
+    """(Conv3x3 -> BatchNorm -> ReLU) x 2, the standard U-Net block."""
+
     def __init__(self, input_channels: int, output_channels: int) -> None:
         super().__init__(
             nn.Conv2d(input_channels, output_channels, 3, padding=1, bias=False),
-            nn.InstanceNorm2d(output_channels, affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(output_channels),
+            nn.ReLU(inplace=True),
             nn.Conv2d(output_channels, output_channels, 3, padding=1, bias=False),
-            nn.InstanceNorm2d(output_channels, affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.BatchNorm2d(output_channels),
+            nn.ReLU(inplace=True),
         )
 
 
-class ConditionalUNet(nn.Module):
+class VanillaUNet(nn.Module):
+    """Standard U-Net (Ronneberger et al., 2015).
+
+    Contracting path of `levels` _DoubleConv blocks with channels doubling from
+    base_channels, MaxPool2d(2) between them; a bottleneck at 2x the last
+    encoder width; an expanding path of ConvTranspose2d(k=2, s=2) upsampling
+    with concatenated skip connections and a _DoubleConv after each; a 1x1
+    convolution to output_channels.
+
+    Padded 3x3 convolutions are used (rather than the paper's unpadded convs
+    with cropped skips) so input and output share spatial dimensions.
+
+    A Tanh output head is applied because the pipeline supplies and expects
+    images in [-1, 1]; set `tanh_output = false` for a raw linear head.
+    """
+
     def __init__(
         self,
         input_channels: int = 1,
         output_channels: int = 1,
-        num_domains: int = 15,
         base_channels: int = 64,
-        max_channels: int = 512,
         levels: int = 4,
+        tanh_output: bool = True,
     ) -> None:
         super().__init__()
         if levels < 1:
             raise ValueError("levels must be positive")
-        channels = [min(base_channels * 2**level, max_channels) for level in range(levels)]
-        bottleneck_channels = min(channels[-1] * 2, max_channels)
+        channels = [base_channels * 2**level for level in range(levels)]
 
         self.encoders = nn.ModuleList()
         previous = input_channels
         for channel in channels:
-            self.encoders.append(_ConvBlock(previous, channel))
+            self.encoders.append(_DoubleConv(previous, channel))
             previous = channel
         self.pool = nn.MaxPool2d(2)
-        self.bottleneck = _ConvBlock(channels[-1], bottleneck_channels)
-        # 5*m + c -> (m \in {t1, t2, t2*}) and (c \in {0.1T, 1.5T, 3T, 5T, 7T}) -> {0...14}
-        self.source_embedding = nn.Embedding(num_domains, bottleneck_channels)
-        self.target_embedding = nn.Embedding(num_domains, bottleneck_channels)
+        self.bottleneck = _DoubleConv(channels[-1], channels[-1] * 2)
 
         self.upconvs = nn.ModuleList()
         self.decoders = nn.ModuleList()
-        previous = bottleneck_channels
+        previous = channels[-1] * 2
         for channel in reversed(channels):
             self.upconvs.append(nn.ConvTranspose2d(previous, channel, 2, stride=2))
-            self.decoders.append(_ConvBlock(channel * 2, channel))
+            self.decoders.append(_DoubleConv(channel * 2, channel))
             previous = channel
-        self.output = nn.Sequential(nn.Conv2d(channels[0], output_channels, 1), nn.Tanh())
 
-    def forward(
-        self,
-        image: torch.Tensor,
-        target_domain: torch.Tensor,
-        source_domain: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        head: list[nn.Module] = [nn.Conv2d(channels[0], output_channels, 1)]
+        if tanh_output:
+            head.append(nn.Tanh())
+        self.output = nn.Sequential(*head)
+
+    def forward(self, image: torch.Tensor, *_: object) -> torch.Tensor:
+        # Extra positional arguments are accepted and discarded: the shared
+        # task3_unet_trainer passes (source, target_domain, source_domain), and
+        # a plain U-Net takes only the image.
         skips = []
         x = image
         for encoder in self.encoders:
@@ -72,9 +84,6 @@ class ConditionalUNet(nn.Module):
             x = self.pool(x)
 
         x = self.bottleneck(x)
-        source_domain = target_domain if source_domain is None else source_domain
-        conditioning = self.source_embedding(source_domain) + self.target_embedding(target_domain)
-        x = x + conditioning.unsqueeze(-1).unsqueeze(-1)
         for upconv, decoder, skip in zip(self.upconvs, self.decoders, reversed(skips), strict=True):
             x = upconv(x)
             if x.shape[-2:] != skip.shape[-2:]:
@@ -83,16 +92,15 @@ class ConditionalUNet(nn.Module):
         return self.output(x)
 
 
-@register_component("task3_conditional_unet", category="model")
-class ConditionalUNetFactory(ModelFactory[ConditionalUNet]):
-    def build(self) -> ConditionalUNet:
-        model = ConditionalUNet(
+@register_component("task3_vanilla_unet", category="model")
+class VanillaUNetFactory(ModelFactory[VanillaUNet]):
+    def build(self) -> VanillaUNet:
+        model = VanillaUNet(
             input_channels=int(self.params.get("input_channels", 1)),
             output_channels=int(self.params.get("output_channels", 1)),
-            num_domains=int(self.params.get("num_domains", 15)),
-            base_channels=int(self.params.get("base_channels", 64)),
-            max_channels=int(self.params.get("max_channels", 512)),
+            base_channels=int(self.params.get("base_channels", 32)),
             levels=int(self.params.get("levels", 4)),
+            tanh_output=bool(self.params.get("tanh_output", True)),
         )
         checkpoint = self.params.get("checkpoint")
         device = self._device()
