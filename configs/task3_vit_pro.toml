@@ -1,5 +1,5 @@
 [experiment]
-name = "task3_unet_pro"    # prospective only, conditioned
+name = "task3_vit_pro"    # prospective only, conditioned, pretrained DINOv3 ViT-L/16 encoder
 seed = 0
 device = "cuda:0"
 output_dir = "../runs"
@@ -8,18 +8,21 @@ output_dir = "../runs"
 name = "mlflow"
 
 [tracking.params]
-experiment_name = "task3-conditional-unet"
-run_name = "task3_unet_pro"
+experiment_name = "task3-conditional-vit"
+run_name = "task3_vit_pro"
 tracking_uri = "sqlite:///mlflow.db"
 
 [registry]
 paths = [
   "../components/data/task3.py",
-  "../components/models/conditional_unet.py",
+  "../components/models/conditional_vit.py",
   "../components/losses/reconstruction.py",
   "../components/training/task3.py",
 ]
 
+# Identical to task3_unet_pro.toml apart from batch_size: a 314M-parameter
+# ViT-L cannot hold 64 slices of 368x448 on 32 GB (measured 14.1 GiB at 8,
+# 22.9 GiB at 16), so the batch size is the one axis that cannot be matched.
 [data]
 name = "task3_paired"
 
@@ -27,7 +30,7 @@ name = "task3_paired"
 modalities = ["T1W", "T2W", "T2FLAIR"]
 field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
 crop_size = [368, 448]
-batch_size = 64
+batch_size = 16
 num_workers = 8
 data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
 preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
@@ -39,26 +42,28 @@ prospective_split = "pro_train"
 horizontal_flip = 0.5
 
 [model]
-name = "task3_conditional_unet"
+name = "task3_conditional_vit"
 
 [model.params]
+backbone = "vit_large_patch16_dinov3.lvd1689m"
+pretrained = true
 input_channels = 1
 output_channels = 1
 num_domains = 15
-base_channels = 32
-max_channels = 512
-levels = 4
+decoder_channels = 256
+freeze_encoder = false
 
 [training]
 name = "task3_unet_trainer"
 
 [training.params]
 pretrain_steps = 0
-epochs = 100
+epochs = 10
 learning_rate = 0.0001
+encoder_lr_scale = 0.1     # pretrained backbone steps 10x slower than the fresh decoder
 beta1 = 0.9
 beta2 = 0.999
-save_every = 10
+save_every = 2
 amp = true
 progress = true
 progress_interval = 5.0
