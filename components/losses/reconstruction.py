@@ -32,4 +32,11 @@ class LPIPSLoss(Loss[torch.Tensor, torch.Tensor, torch.Tensor]):
         self.loss = PerceptualLoss(net=str(params.get("net", "alex"))).to(device).eval()
 
     def __call__(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # LPIPS is a 2D network. For volumetric models score the axial slices
+        # and average, the usual 2.5D perceptual loss; 4D input is unchanged.
+        if prediction.ndim == 5:
+            batch, channels, depth = prediction.shape[:3]
+            shape = (batch * depth, channels, *prediction.shape[3:])
+            prediction = prediction.permute(0, 2, 1, 3, 4).reshape(shape)
+            target = target.permute(0, 2, 1, 3, 4).reshape(shape)
         return self.loss(prediction, target)
