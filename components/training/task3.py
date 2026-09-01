@@ -65,7 +65,9 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 model, data["pretrain"], device, pretrain_steps, context
             )
 
-        result["finetune"] = self._finetune(model, data["train"], losses, device, context)
+        result["finetune"] = self._finetune(
+            model, data["train"], losses, device, context, data.get("validation")
+        )
         context.state["model"] = model
         return result
 
@@ -136,15 +138,27 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         losses: dict[str, Any],
         device: torch.device,
         context: TrainingContext,
+        validation_loader: Any = None,
     ) -> dict[str, Any]:
         epochs = int(self.params.get("epochs", 50))
         if epochs < 1:
             raise ValueError("epochs must be positive")
         save_every = int(self.params.get("save_every", 10))
+        learning_rate = float(self.params.get("learning_rate", 5e-5))
+        encoder_scale = float(self.params.get("encoder_lr_scale", 1.0))
+        # A model carrying a pretrained backbone can expose its own parameter
+        # groups so the encoder steps slower than the freshly initialised
+        # decoder. Anything else keeps the original single-group optimizer.
+        if encoder_scale != 1.0 and hasattr(model, "optimizer_param_groups"):
+            parameters = model.optimizer_param_groups(learning_rate, encoder_scale)
+            print(f"Discriminative lr: decoder={learning_rate:g} encoder={learning_rate * encoder_scale:g}", flush=True)
+        else:
+            parameters = model.parameters()
         optimizer = torch.optim.Adam(
-            model.parameters(),
-            lr=float(self.params.get("learning_rate", 5e-5)),
+            parameters,
+            lr=learning_rate,
             betas=(float(self.params.get("beta1", 0.5)), float(self.params.get("beta2", 0.999))),
+            weight_decay=float(self.params.get("weight_decay", 0.0)),
         )
         last_loss = 0.0
         checkpoint: Path | None = None
@@ -153,6 +167,24 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         print(f"Fine-tuning: {epochs} epochs", flush=True)
         show_progress = bool(self.params.get("progress", True))
         progress_interval = float(self.params.get("progress_interval", 5.0))
+
+        # Early stopping. patience <= 0 disables it entirely, preserving the
+        # original behaviour of running every epoch.
+        patience = int(self.params.get("early_stopping_patience", 0))
+        min_delta = float(self.params.get("early_stopping_min_delta", 0.0))
+        restore_best = bool(self.params.get("early_stopping_restore_best", True))
+        best_train = float("inf")
+        train_wait = 0
+        best_epoch = 0
+        best_state: dict[str, torch.Tensor] | None = None
+        stopped_early = False
+        stop_reason = None
+        if patience > 0:
+            print(
+                f"Early stopping: monitor=train patience={patience} "
+                f"min_delta={min_delta:g} restore_best={restore_best}",
+                flush=True,
+            )
 
         for epoch in range(1, epochs + 1):
             model.train()
@@ -190,13 +222,92 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
             for name, value in running_values.items():
                 context.tracker.log_loss(name, value / max(batches, 1), step=epoch, stage="finetuning")
             print(f"Fine-tuning [{epoch}/{epochs}] total={last_loss:.6f}", flush=True)
+
+            # A held-out subject is the only signal that can actually see
+            # overfitting; training loss falls right through it.
+            monitored = last_loss
+            if validation_loader is not None:
+                model.eval()
+                total, seen = 0.0, 0
+                with torch.no_grad():
+                    for batch in validation_loader:
+                        with torch.amp.autocast(device.type, enabled=use_amp):
+                            prediction = model(
+                                batch["source"].to(device),
+                                batch["target_domain"].to(device).long(),
+                                batch["source_domain"].to(device).long(),
+                            )
+                            loss, _ = weighted_reconstruction_loss(
+                                losses, prediction, batch["target"].to(device)
+                            )
+                        total += float(loss.detach())
+                        seen += 1
+                validation_loss = total / max(seen, 1)
+                context.tracker.log_loss("validation", validation_loss, step=epoch, stage="finetuning")
+                print(f"Validation [{epoch}/{epochs}] total={validation_loss:.6f}", flush=True)
+                if str(self.params.get("early_stopping_monitor", "validation")) == "validation":
+                    monitored = validation_loss
+
+            if patience > 0:
+                # best/best_epoch/best_state must move together, so the
+                # restored weights are the ones the reported loss belongs to.
+                if monitored < best_train - min_delta:
+                    best_train = monitored
+                    best_epoch = epoch
+                    if restore_best:
+                        best_state = {
+                            key: value.detach().cpu().clone()
+                            for key, value in model.state_dict().items()
+                        }
+                    train_wait = 0
+                else:
+                    train_wait += 1
+
+                # Note: this stops on convergence, not overfitting. Detecting
+                # overfitting would need held-out paired data, which does not
+                # exist locally - the prospective validation targets are
+                # withheld by the challenge evaluator.
+                if train_wait >= patience:
+                    stop_reason = f"training loss flat for {patience} epochs"
+                    stopped_early = True
+                    print(
+                        f"Early stopping at epoch {epoch}/{epochs}: {stop_reason}. "
+                        f"Best epoch {best_epoch}.",
+                        flush=True,
+                    )
+
             if save_every > 0 and epoch % save_every == 0:
                 checkpoint = self._save(model, optimizer, context.paths.artifacts_dir, "finetune", epoch)
                 context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
 
-        checkpoint = self._save(model, optimizer, context.paths.artifacts_dir, "finetune", epochs)
+            if stopped_early:
+                completed_epochs = epoch
+                break
+        else:
+            completed_epochs = epochs
+
+        if restore_best and best_state is not None and best_epoch != completed_epochs:
+            model.load_state_dict(best_state)
+            print(f"Restored best weights from epoch {best_epoch}.", flush=True)
+
+        checkpoint = self._save(
+            model, optimizer, context.paths.artifacts_dir, "finetune", completed_epochs
+        )
         context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
-        return {"epochs": epochs, "loss": last_loss, "checkpoint": str(checkpoint)}
+        summary: dict[str, Any] = {
+            "epochs": completed_epochs,
+            "loss": last_loss,
+            "checkpoint": str(checkpoint),
+        }
+        if patience > 0:
+            summary["stopped_early"] = stopped_early
+            summary["best_epoch"] = best_epoch
+            if stop_reason:
+                summary["stop_reason"] = stop_reason
+            if best_train != float("inf"):
+                summary["best_train_loss"] = best_train
+        return summary
+
 
     def _device(self) -> torch.device:
         configured = self.params.get("device")
