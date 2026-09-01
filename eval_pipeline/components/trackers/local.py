@@ -46,14 +46,15 @@ class LocalExperimentTracker(ExperimentTracker):
         if not source.exists():
             raise FileNotFoundError(f"Artifact does not exist: {source}")
 
-        target_dir = self.paths.artifacts_dir
-        if artifact_path:
-            target_dir = target_dir / artifact_path
+        # avoid duplicate artifact logging
+        artifacts_dir = Path(self.paths.artifacts_dir).resolve()
+        if is_relative_to(source, artifacts_dir):
+            return source
+
+        target_dir = artifacts_dir / artifact_path if artifact_path else artifacts_dir
         target_dir.mkdir(parents=True, exist_ok=True)
 
         target = target_dir / source.name
-        if source == target or is_relative_to(source, target_dir):
-            return source
         if source.is_dir():
             shutil.copytree(source, target, dirs_exist_ok=True)
         else:
@@ -73,15 +74,27 @@ class LocalExperimentTracker(ExperimentTracker):
         return target
 
     def _prepare_dirs(self) -> None:
-        try:
-            self.paths.experiment_dir.mkdir(parents=True)
-        except FileExistsError as exc:
+        if self._has_results():
             raise FileExistsError(
                 f"Experiment output already exists: {self.paths.experiment_dir}. "
                 "Choose a unique [experiment].name or archive the existing output."
-            ) from exc
+            )
+        self.paths.experiment_dir.mkdir(parents=True, exist_ok=True)
         self.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.paths.logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def _has_results(self) -> bool:
+        """Whether the output directory holds anything worth protecting.
+
+        The point of refusing to reuse a directory is that two runs must never
+        merge their artifacts. A run that died before producing any leaves only
+        config copies and two empty directories, and blocking the retry on that
+        buys nothing - it just makes every crash cost an edit to the config.
+        """
+        return any(
+            directory.is_dir() and any(directory.iterdir())
+            for directory in (self.paths.artifacts_dir, self.paths.logs_dir)
+        )
 
     def _append_record(self, path: Path, record: LoggedRecord) -> None:
         with path.open("a", encoding="utf-8") as handle:
