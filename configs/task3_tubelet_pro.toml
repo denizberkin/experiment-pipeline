@@ -1,0 +1,83 @@
+[experiment]
+name = "task3_tubelet_pro"   # LeJEPA tubelet encoder + conditioned UNETR decoder
+seed = 0
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-tubelet"
+run_name = "task3_tubelet_pro"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3_volume.py",
+  "../components/models/conditional_tubelet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_paired_volume"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [16, 224, 224]   # 16 AXIAL slices: axial_first puts the axial axis first
+crop_divisor = 16            # Swin needs 32; the tubelet ViT needs 16
+axial_first = true            # transpose to (axial, x, y); the encoder was pretrained on axial slabs
+batch_size = 4               # 5.1 GiB at B=2 measured; 32 GB GV100 has room
+samples_per_epoch = 800      # 200 steps/epoch at batch 4
+validation_samples = 200
+holdout_subjects = []         # only 3 paired subjects exist; holding one out costs 33% of the training data
+num_workers = 4
+data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
+cache_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed/volumes_3d"
+prospective_split = "pro_train"
+flip_probability = 0.5
+foreground_threshold = 0.02
+foreground_attempts = 8
+seed = 0
+
+[model]
+name = "task3_conditional_tubelet"
+
+[model.params]
+# Empty string + allow_random_encoder=true gives the matched random-init control arm.
+encoder_checkpoint = "lejepa_pretraining/artifacts/encoder_step_00040000.pt"
+gradient_checkpointing = true   # 86.7M-param ViT-B at 1568 tokens; trades ~30% step time for memory
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0
+epochs = 10                  # matches the 10-epoch budget of the current best (SSIM 0.9026)
+learning_rate = 0.0001       # fresh decoder: FiLM projections, UNETR stages, output head
+encoder_lr_scale = 0.1       # the 86.7M pretrained params step at 1e-5
+beta1 = 0.9
+beta2 = 0.999
+weight_decay = 0.00001
+save_every = 5               # 1.2 GB a checkpoint; 5 keeps a usable curve without filling the disk
+log_checkpoints = false      # skip the byte-identical mlruns/ copy; runs/<name>/artifacts/ already has it
+amp = true
+progress = true
+progress_interval = 5.0
+early_stopping_patience = 0        # fixed epoch budget, not early stopping
+early_stopping_min_delta = 0.0001
+early_stopping_monitor = "train"   # no holdout: train loss only, so patience is off
+early_stopping_restore_best = true
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"

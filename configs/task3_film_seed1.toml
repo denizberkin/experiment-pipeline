@@ -1,0 +1,86 @@
+[experiment]
+name = "task3_film_seed1"   # A0.3 seed replicate: identical to task3_unet_film_residual except the seed
+seed = 1
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_film_seed1"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_paired"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 64
+num_workers = 8
+data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 1
+include_retro = false
+use_preprocessed = true
+require_complete = true
+prospective_split = "pro_train"
+holdout_subjects = []         # only 3 paired subjects exist; holding one out costs 33% of the training data
+horizontal_flip = 0.5
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+input_channels = 1
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+# A1.1: zero-init residual head instead of Conv+Tanh, so step 0 is the
+# identity the challenge already scores at SSIM 0.836.
+residual_output = true
+# A3.1: zero-init FiLM after both norms of every decoder block, on top of
+# the bottleneck add, so step 0 still reproduces task3_unet_pro exactly.
+film_conditioning = true
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0
+epochs = 10                  # matches the run being replicated; budget is not what A0.3 measures
+learning_rate = 0.0001
+beta1 = 0.9
+beta2 = 0.999
+save_every = 2               # 93 MB each; 5 points to sweep locally
+log_checkpoints = false      # skip the byte-identical mlruns/ copy; runs/<name>/artifacts/ already has it
+amp = true
+progress = true
+progress_interval = 5.0
+early_stopping_patience = 0        # fixed epoch budget, not early stopping
+early_stopping_min_delta = 0.0001
+early_stopping_restore_best = true
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"

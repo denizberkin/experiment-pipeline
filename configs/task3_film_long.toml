@@ -1,0 +1,90 @@
+[experiment]
+name = "task3_film_long"   # the like-for-like run: FiLM+residual at the plain U-Net's budget.
+                           # seed 1 matches task3_film_seed1, and the LR is constant (no scheduler),
+                           # so epochs 1-10 here re-run that job and its e10 is a consistency check.
+seed = 1
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_film_long"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_paired"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 64
+num_workers = 8
+data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 1
+include_retro = false
+use_preprocessed = true
+require_complete = true
+prospective_split = "pro_train"
+holdout_subjects = []         # only 3 paired subjects exist; holding one out costs 33% of the training data
+horizontal_flip = 0.5
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+input_channels = 1
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+# A1.1: zero-init residual head instead of Conv+Tanh, so step 0 is the
+# identity the challenge already scores at SSIM 0.836.
+residual_output = true
+# A3.1: zero-init FiLM after both norms of every decoder block, on top of
+# the bottleneck add, so step 0 still reproduces task3_unet_pro exactly.
+film_conditioning = true
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0
+# task3_unet_pro reached loss 0.0120 in 63 epochs; FiLM+residual stopped at 0.0190 after 10 with the
+# loss still falling. This is the first time the two architectures get the same budget.
+epochs = 60
+learning_rate = 0.0001
+beta1 = 0.9
+beta2 = 0.999
+save_every = 5               # 100 MB each; 12 points over 60 epochs (~1.2 GB), enough to locate the peak
+log_checkpoints = false      # skip the byte-identical mlruns/ copy; runs/<name>/artifacts/ already has it
+amp = true
+progress = true
+progress_interval = 5.0
+early_stopping_patience = 0        # fixed epoch budget, not early stopping
+early_stopping_min_delta = 0.0001
+early_stopping_restore_best = true
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"

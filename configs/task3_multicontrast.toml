@@ -1,0 +1,108 @@
+[experiment]
+name = "task3_multicontrast"   # 23: all three contrasts at the source field as input.
+                               # Task 3 is pure contrast mapping (identity already scores
+                               # 0.836), and one intensity per voxel cannot separate WM from
+                               # GM from a partial-volume edge -- three contrasts largely pin
+                               # down the tissue, making the target field near-deterministic.
+                               # Seeded from the 0.903110 model, widened to 4 channels with
+                               # the auxiliaries zeroed, so step 0 reproduces it exactly.
+                               # model turns over -- the non-pretrained one peaked at e20.
+seed = 1
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_multicontrast"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_multicontrast"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 64
+num_workers = 8
+data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 1
+include_retro = false         # pretrain_steps = 0, so the retrospective loader is not needed
+use_preprocessed = true
+require_complete = true
+prospective_split = "pro_train"
+retrospective_split = "retro_train"
+holdout_subjects = []         # only 3 paired subjects exist; holding one out costs 33% of the training data
+horizontal_flip = 0.5
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+# (primary, T1W, T2W, T2FLAIR); channel 0 duplicates the contrast being predicted
+input_channels = 4
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+# A1.1: zero-init residual head instead of Conv+Tanh, so step 0 is the
+# identity the challenge already scores at SSIM 0.836.
+residual_output = true
+# A3.1: zero-init FiLM after both norms of every decoder block, on top of
+# the bottleneck add, so step 0 still reproduces task3_unet_pro exactly.
+film_conditioning = true
+# Start from the finished 30k-step pretraining rather than repeating it: scaling pretraining
+# past 12k added ~nothing (+0.0007 SSIM on 36/60), while the fine-tune was still climbing at
+# e25 (better than e10 on 55/60). Spend the GPU on epochs, not on more MIM.
+checkpoint = "/home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/experiment-pipeline/runs/task3_retro_pretrain_big/artifacts/widened4_from_e25.pt"
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0            # pretrained weights arrive via model.params.checkpoint
+mask_ratio = 0.5
+mask_patch_size = 16
+pretrain_learning_rate = 0.0001
+# The defaults here are 0.0/0.99, which are GAN betas. This is a plain L1 reconstruction,
+# so use the standard Adam pair instead.
+pretrain_beta1 = 0.9
+pretrain_beta2 = 0.999
+pretrain_save_every = 10000
+pretrain_print_every = 250
+epochs = 25                  # starts from a converged model; this is refinement, not training from scratch
+learning_rate = 0.0001
+beta1 = 0.9
+beta2 = 0.999
+save_every = 5               # 100 MB each; 10 points over 50 epochs (~1 GB)
+log_checkpoints = false      # skip the byte-identical mlruns/ copy; runs/<name>/artifacts/ already has it
+amp = true
+progress = true
+progress_interval = 5.0
+early_stopping_patience = 0        # fixed epoch budget, not early stopping
+early_stopping_min_delta = 0.0001
+early_stopping_restore_best = true
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"
