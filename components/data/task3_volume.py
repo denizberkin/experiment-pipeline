@@ -47,10 +47,12 @@ class _PairedVolumeDataset(Dataset):
         foreground_threshold: float,
         foreground_attempts: int,
         seed: int,
+        axial_first: bool = False,
     ) -> None:
         self.pairs = pairs
         self.crop_size = crop_size
         self.samples_per_epoch = samples_per_epoch
+        self.axial_first = axial_first
         self.flip_probability = flip_probability
         self.foreground_threshold = foreground_threshold
         self.foreground_attempts = foreground_attempts
@@ -80,6 +82,13 @@ class _PairedVolumeDataset(Dataset):
         pair = self.pairs[rng.randrange(len(self.pairs))]
         source = np.load(pair.source, mmap_mode="r")
         target = np.load(pair.target, mmap_mode="r")
+        if self.axial_first:
+            # Volumes are cached (x, y, z); axis 2 is the axial index. Models that expect
+            # [B, C, D, H, W] -- and the LPIPS term, which folds axis 2 into the batch --
+            # need the axial axis first, so a crop_size of (16, 224, 224) means 16 axial
+            # slices rather than 16 sagittal ones. A transpose of a memmap is a view.
+            source = source.transpose(2, 0, 1)
+            target = target.transpose(2, 0, 1)
 
         origin = self._origin(source.shape, source, rng)
         window = tuple(slice(start, start + size) for start, size in zip(origin, self.crop_size, strict=True))
@@ -122,13 +131,17 @@ class Task3VolumeDataModule(DataModule[dict[str, DataLoader]]):
         modalities = list(self.params.get("modalities", MODALITIES))
         fields = list(self.params.get("field_strengths", FIELD_STRENGTHS))
         crop_size = tuple(int(value) for value in self.params.get("crop_size", (96, 96, 96)))
-        if any(size % 32 for size in crop_size):
-            raise ValueError(f"crop_size {crop_size} must be divisible by 32 for Swin UNETR")
+        # Swin UNETR needs 32; the tubelet ViT needs depth 16 exactly and 16 in plane.
+        # Keep 32 as the default so existing configs are unaffected.
+        divisor = int(self.params.get("crop_divisor", 32))
+        if any(size % divisor for size in crop_size):
+            raise ValueError(f"crop_size {crop_size} must be divisible by {divisor}")
 
         data_dir = Path(self.params.get("data_dir") or get_data_dir())
         cache_dir = Path(self.params.get("cache_dir") or (Path(get_preprocessed_dir()) / "volumes_3d"))
         split = ABBR_TO_SPLIT[str(self.params.get("prospective_split", "pro_train"))]
         holdout = {str(subject) for subject in self.params.get("holdout_subjects", [])}
+        axial_first = bool(self.params.get("axial_first", False))
         seed = int(self.params.get("seed", 0))
 
         cached = self._cache_volumes(data_dir, cache_dir, split, modalities, fields)
@@ -146,6 +159,7 @@ class Task3VolumeDataModule(DataModule[dict[str, DataLoader]]):
                     float(self.params.get("foreground_threshold", 0.02)),
                     int(self.params.get("foreground_attempts", 8)),
                     seed,
+                    axial_first=axial_first,
                 ),
                 batch_size=int(self.params.get("batch_size", 2)),
                 num_workers=int(self.params.get("num_workers", 4)),
@@ -167,6 +181,7 @@ class Task3VolumeDataModule(DataModule[dict[str, DataLoader]]):
                         float(self.params.get("foreground_threshold", 0.02)),
                         int(self.params.get("foreground_attempts", 8)),
                         seed + 1,
+                        axial_first=axial_first,
                     ),
                     batch_size=int(self.params.get("batch_size", 2)),
                     num_workers=int(self.params.get("num_workers", 4)),
