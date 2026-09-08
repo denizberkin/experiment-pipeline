@@ -91,6 +91,7 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         ratio = float(self.params.get("mask_ratio", 0.5))
         patch_size = int(self.params.get("mask_patch_size", 16))
         save_every = int(self.params.get("pretrain_save_every", 10000))
+        log_checkpoints = bool(self.params.get("log_checkpoints", True))
         print_every = max(1, int(self.params.get("pretrain_print_every", 1000)))
         step = 0
         last_loss = 0.0
@@ -123,12 +124,14 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                     print(f"Pretraining [{step}/{steps}] masked_l1={last_loss:.6f}", flush=True)
                 if save_every > 0 and step % save_every == 0:
                     checkpoint = self._save(model, optimizer, context.paths.artifacts_dir, "pretrain", step)
-                    context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
+                    if log_checkpoints:
+                        context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
                 if step >= steps:
                     break
 
         checkpoint = self._save(model, optimizer, context.paths.artifacts_dir, "pretrain", step)
-        context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
+        if log_checkpoints:
+            context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
         return {"steps": step, "loss": last_loss, "checkpoint": str(checkpoint)}
 
     def _finetune(
@@ -144,6 +147,12 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         if epochs < 1:
             raise ValueError("epochs must be positive")
         save_every = int(self.params.get("save_every", 10))
+        # log_artifact copies each checkpoint into mlruns/, so a tracked run costs
+        # twice its checkpoints on disk. The copy is byte-identical to the one in
+        # runs/<name>/artifacts/ and only feeds the MLflow artifact browser, so it
+        # is the first thing to drop when space is tight. Default stays True so
+        # existing configs are unaffected.
+        log_checkpoints = bool(self.params.get("log_checkpoints", True))
         learning_rate = float(self.params.get("learning_rate", 5e-5))
         encoder_scale = float(self.params.get("encoder_lr_scale", 1.0))
         # A model carrying a pretrained backbone can expose its own parameter
@@ -180,9 +189,12 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         stopped_early = False
         stop_reason = None
         if patience > 0:
+            configured = str(self.params.get("early_stopping_monitor", "validation"))
+            monitor = configured if validation_loader is not None else "train"
+            note = "" if validation_loader is not None else "  (no validation loader)"
             print(
-                f"Early stopping: monitor=train patience={patience} "
-                f"min_delta={min_delta:g} restore_best={restore_best}",
+                f"Early stopping: monitor={monitor} patience={patience} "
+                f"min_delta={min_delta:g} restore_best={restore_best}{note}",
                 flush=True,
             )
 
@@ -263,12 +275,13 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 else:
                     train_wait += 1
 
-                # Note: this stops on convergence, not overfitting. Detecting
-                # overfitting would need held-out paired data, which does not
-                # exist locally - the prospective validation targets are
-                # withheld by the challenge evaluator.
+                # With a holdout_subjects loader this watches validation loss and
+                # so does stop on overfitting; without one it falls back to the
+                # training loss and stops only on convergence. Name whichever it
+                # actually watched -- a run that reports the wrong one cannot be
+                # told apart from a run that had no held-out signal at all.
                 if train_wait >= patience:
-                    stop_reason = f"training loss flat for {patience} epochs"
+                    stop_reason = f"{monitor} loss flat for {patience} epochs"
                     stopped_early = True
                     print(
                         f"Early stopping at epoch {epoch}/{epochs}: {stop_reason}. "
@@ -278,7 +291,8 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
 
             if save_every > 0 and epoch % save_every == 0:
                 checkpoint = self._save(model, optimizer, context.paths.artifacts_dir, "finetune", epoch)
-                context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
+                if log_checkpoints:
+                    context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
 
             if stopped_early:
                 completed_epochs = epoch
@@ -293,7 +307,8 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         checkpoint = self._save(
             model, optimizer, context.paths.artifacts_dir, "finetune", completed_epochs
         )
-        context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
+        if log_checkpoints:
+            context.tracker.log_artifact(checkpoint, artifact_path="checkpoints")
         summary: dict[str, Any] = {
             "epochs": completed_epochs,
             "loss": last_loss,
@@ -305,7 +320,7 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
             if stop_reason:
                 summary["stop_reason"] = stop_reason
             if best_train != float("inf"):
-                summary["best_train_loss"] = best_train
+                summary[f"best_{monitor}_loss"] = best_train
         return summary
 
 
