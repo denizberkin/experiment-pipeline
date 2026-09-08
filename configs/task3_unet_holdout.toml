@@ -1,0 +1,82 @@
+[experiment]
+name = "task3_unet_holdout"    # task3_unet_pro, with subject 0009 held out
+seed = 0
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_unet_holdout"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_paired"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 64
+num_workers = 8
+data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 0
+include_retro = false
+use_preprocessed = true
+require_complete = true
+prospective_split = "pro_train"
+horizontal_flip = 0.5
+holdout_subjects = []         # only 3 paired subjects exist; holding one out costs 33% of the training data
+validation_samples = 2640    # every 5th slice of the 13,200-slice fold; it is re-scored each epoch
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+input_channels = 1
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0
+epochs = 10                  # log peak: 10ep beats 50ep (0.9014 vs 0.8976)
+learning_rate = 0.0001
+beta1 = 0.9
+beta2 = 0.999
+save_every = 2               # 93 MB each; 5 points to sweep locally
+log_checkpoints = false      # skip the byte-identical mlruns/ copy; runs/<name>/artifacts/ already has it
+amp = true
+progress = true
+progress_interval = 5.0
+early_stopping_patience = 0        # fixed epoch budget, not early stopping
+early_stopping_min_delta = 0.0001
+early_stopping_restore_best = true
+early_stopping_monitor = "train"   # no holdout: train loss only, so patience is off
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"
