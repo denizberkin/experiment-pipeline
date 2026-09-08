@@ -13,7 +13,10 @@ import torch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "experiment-pipeline")]
 
-from components.models.conditional_unet import ConditionalUNet  # noqa: E402
+from components.models.conditional_unet import (  # noqa: E402
+    ConditionalUNet,
+    unet_from_state_dict,
+)
 from mrixfields.data.transforms import CenterCropOrPad  # noqa: E402
 from mrixfields.data.utils import get_joint_domain, load_nifti, save_nifti  # noqa: E402
 from mrixfields.zclip_constants import Z_CLIP_RANGE  # noqa: E402
@@ -68,9 +71,12 @@ def main() -> None:
     if args.batch_size < 1:
         raise ValueError("batch-size must be positive")
 
-    model = ConditionalUNet(base_channels=32, max_channels=512, levels=4)
+    # Read the architecture off the checkpoint rather than hardcoding it: the
+    # widths follow whatever config trained it, and the residual head and
+    # per-scale FiLM arms move key names, so a fixed constructor silently
+    # excludes those checkpoints.
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=True)
-    model.load_state_dict(checkpoint["model"])
+    model = unet_from_state_dict(checkpoint.get("model", checkpoint))
     model.to(device).eval()
     source_domain = get_joint_domain(args.modality, args.source)
     target_domain = get_joint_domain(args.modality, args.target)
