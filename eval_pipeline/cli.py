@@ -76,6 +76,35 @@ def _add_default_import_roots(config) -> None:
         sys.path.insert(0, root_str)
 
 
+def _seed_rngs(seed) -> None:
+    """Seed the global RNGs from [experiment].seed before anything is built.
+
+    [experiment].seed was previously carried into every context object and then
+    never used: the only seeding in the pipeline was each DataLoader's own
+    generator, which fixes shuffle order but not weight initialisation. Module
+    constructors draw from the global torch RNG, so two runs of one config
+    started from different random weights and the config's seed had no effect on
+    them at all.
+
+    This has to run before build_model_factory().build(), not inside a trainer:
+    by the time a training context exists the weights have already been drawn.
+
+    Left unseeded when the config omits a seed, so a config that deliberately
+    wants fresh weights each run keeps that behaviour.
+    """
+    if seed is None:
+        return
+    import random
+
+    import numpy as np
+    import torch
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
 def _run_stages(config, stages: list[str]) -> dict[str, dict]:
     for stage in stages:
         if getattr(config, stage) is None:
@@ -103,6 +132,7 @@ def _run_stages(config, stages: list[str]) -> dict[str, dict]:
     tracker = build_experiment_tracker(config, paths)
     state = {}
     try:
+        _seed_rngs(config.seed)
         data = build_data_module(config.data).setup()
         model = build_model_factory(config.model).build()
         losses = build_losses(config.losses)
