@@ -41,6 +41,33 @@ def weighted_reconstruction_loss(
     return total, values
 
 
+#: Joint domains are ``modality_index * len(FIELDS) + field_index`` with FIELDS ordered
+#: ("0.1T", "1.5T", "3T", "5T", "7T"), so the lowest field is field index 0 in every modality.
+FIELDS_PER_MODALITY = 5
+LOW_FIELD_INDEX = 0
+
+
+def low_field_mask(
+    source_domain: torch.Tensor, target_domain: torch.Tensor, ends: str
+) -> torch.Tensor:
+    """Samples with 0.1T at the requested end(s) of the transition.
+
+    0.1T touches 40% of transitions but carries 50% of the error, so weighting these up
+    makes the training objective proportional to where the error actually is. ``ends``
+    picks which asymmetry to target: mapping *from* 0.1T is information recovery, mapping
+    *to* it is information destruction, and the two score differently.
+    """
+    src_low = source_domain % FIELDS_PER_MODALITY == LOW_FIELD_INDEX
+    tgt_low = target_domain % FIELDS_PER_MODALITY == LOW_FIELD_INDEX
+    if ends == "source":
+        return src_low
+    if ends == "target":
+        return tgt_low
+    if ends == "either":
+        return src_low | tgt_low
+    raise ValueError(f"low_field_ends must be source, target or either, got {ends!r}")
+
+
 @register_component("task3_unet_trainer", category="training")
 class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]]):
     def train(
@@ -173,7 +200,17 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
         checkpoint: Path | None = None
         use_amp = bool(self.params.get("amp", True)) and device.type == "cuda"
         scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
+        # 0.1T carries 50% of the Task 3 error on 40% of the transitions. Weight 0 is an
+        # exact no-op, so every config predating this keeps its trajectory bit-identical.
+        low_field_weight = float(self.params.get("low_field_weight", 0.0))
+        low_field_ends = str(self.params.get("low_field_ends", "either"))
+        if low_field_weight > 0.0:
+            low_field_mask(torch.zeros(1, dtype=torch.long),
+                           torch.zeros(1, dtype=torch.long), low_field_ends)  # validate early
         print(f"Fine-tuning: {epochs} epochs", flush=True)
+        if low_field_weight > 0.0:
+            print(f"0.1T loss weight: +{low_field_weight:g} on '{low_field_ends}' end(s)",
+                  flush=True)
         show_progress = bool(self.params.get("progress", True))
         progress_interval = float(self.params.get("progress_interval", 5.0))
 
@@ -218,6 +255,18 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 with torch.amp.autocast(device.type, enabled=use_amp):
                     prediction = model(source, target_domain, source_domain)
                     loss, values = weighted_reconstruction_loss(losses, prediction, target)
+                    if low_field_weight > 0.0:
+                        # Re-charge the same losses on the 0.1T subset of the batch and add
+                        # them on top, so a 0.1T sample contributes (1 + low_field_weight)
+                        # times what it otherwise would. Done by re-running the configured
+                        # losses on a slice rather than by making them per-sample, so every
+                        # loss implementation stays untouched and weight 0 is a no-op.
+                        selected = low_field_mask(source_domain, target_domain, low_field_ends)
+                        if bool(selected.any()):
+                            extra, _ = weighted_reconstruction_loss(
+                                losses, prediction[selected], target[selected]
+                            )
+                            loss = loss + low_field_weight * extra
 
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
