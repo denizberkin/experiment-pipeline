@@ -157,6 +157,11 @@ class Task3DataModule(DataModule[dict[str, DataLoader]]):
         datasets: list[Dataset] = []
         found: set[tuple[str, str, str]] = set()
         split = str(self.params.get("prospective_split", "pro_train"))
+        # 34: 2.5D context. Empty by default, so every config predating this keeps its
+        # 4-channel input and its trajectory bit-identical.
+        neighbour_offsets = tuple(int(o) for o in self.params.get("neighbour_offsets", ()))
+        if any(o == 0 for o in neighbour_offsets):
+            raise ValueError("neighbour_offsets must be non-zero; the centre slice is always included")
         for modality in modalities:
             for source in fields:
                 for target in fields:
@@ -336,7 +341,8 @@ class Task3MultiContrastDataModule(DataModule[dict[str, DataLoader]]):
             raise ValueError("horizontal_flip must be between 0 and 1")
 
         train = self._datasets(modalities, fields, crop_size, preprocessed_dir, split,
-                               horizontal_flip, holdout, exclude=True)
+                               horizontal_flip, holdout, exclude=True,
+                               neighbour_offsets=neighbour_offsets)
         if not train:
             raise FileNotFoundError("No multi-contrast Task 3 training pairs were found")
         data = {
@@ -345,7 +351,8 @@ class Task3MultiContrastDataModule(DataModule[dict[str, DataLoader]]):
         }
         if holdout:
             validation = self._datasets(modalities, fields, crop_size, preprocessed_dir, split,
-                                        0.0, holdout, exclude=False)
+                                        0.0, holdout, exclude=False,
+                                        neighbour_offsets=neighbour_offsets)
             if validation:
                 data["validation"] = self._loader(
                     ConcatDataset(validation), batch_size=batch_size,
@@ -354,7 +361,7 @@ class Task3MultiContrastDataModule(DataModule[dict[str, DataLoader]]):
         return data
 
     def _datasets(self, modalities, fields, crop_size, preprocessed_dir, split,
-                  horizontal_flip, holdout, exclude):
+                  horizontal_flip, holdout, exclude, neighbour_offsets=()):
         datasets: list[Dataset] = []
         for modality in modalities:
             for source in fields:
@@ -365,6 +372,7 @@ class Task3MultiContrastDataModule(DataModule[dict[str, DataLoader]]):
                         dataset = CachedMultiContrastDataset(
                             preprocessed_dir, split, modality, source, target,
                             input_modalities=tuple(MODALITIES), crop_size=crop_size,
+                            neighbour_offsets=neighbour_offsets,
                         )
                     except (FileNotFoundError, ValueError):
                         continue
