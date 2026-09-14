@@ -1,16 +1,32 @@
-import numpy as np
-import torch
+import unittest
 
-from components.models.conditional_unet import ConditionalUNet
-from scripts.inference_task3_conditional_unet import predict_slab
+try:
+    import numpy as np
+    import torch
+except ImportError:
+    np = None
+    torch = None
+
+if torch is None:
+    ConditionalUNet = None
+    predict_slab = None
+else:
+    from components.models.conditional_unet import ConditionalUNet
+    from scripts.inference_task3_conditional_unet import predict_slab
 
 
-def test_predict_slab_only_populates_submission_range():
-    model = ConditionalUNet(base_channels=4, max_channels=8, levels=1).eval()
-    volume = np.ones((12, 14, 364), dtype=np.float32) * 0.5
-    prediction = predict_slab(model, volume, 0, 1, torch.device("cpu"), 4)
+@unittest.skipUnless(torch is not None, "torch is not installed")
+class PredictSlabTests(unittest.TestCase):
+    def test_only_populates_submission_range(self):
+        model = ConditionalUNet(base_channels=4, max_channels=8, levels=1).eval()
+        volume = np.ones((12, 14, 364), dtype=np.float32) * 0.5
+        prediction = predict_slab(model, volume, 0, 1, torch.device("cpu"), 4)
 
-    assert prediction.shape == volume.shape
-    assert prediction[:, :, 150:180].any()
-    assert not prediction[:, :, :150].any()
-    assert not prediction[:, :, 180:].any()
+        self.assertEqual(prediction.shape, volume.shape)
+        self.assertTrue(prediction[:, :, 150:180].any())
+        self.assertFalse(prediction[:, :, :150].any())
+        self.assertFalse(prediction[:, :, 180:].any())
+
+
+if __name__ == "__main__":
+    unittest.main()
