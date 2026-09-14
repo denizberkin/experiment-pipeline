@@ -1,0 +1,87 @@
+[experiment]
+name = "task3_cfm"            # 38: conditional flow matching, after Imre et al.
+                              # (arXiv:2609.00960), whose published best on this task is
+                              # 0.909 -- level with our 0.909353. Their gain over a
+                              # regression baseline sharing the same U-Net is +0.003 SSIM
+                              # but -0.021 LPIPS and -0.019 nRMSE, so the objective mostly
+                              # buys the two metrics we are not already winning.
+seed = 1
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_cfm"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3_flow.py",
+  "../components/models/conditional_flow_unet.py",
+  "../components/losses/flow_matching.py",
+  "../components/training/task3_flow.py",
+]
+
+[data]
+name = "task3_flow"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 16               # 3 channels in and out at 368x448; smaller than the 64 the
+                              # single-contrast runs use because each sample is 3x the data
+num_workers = 8
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 1
+prospective_split = "pro_train"
+horizontal_flip = 0.5         # applied to source and target together; the pair is
+                              # registered, so moving one endpoint alone destroys it
+vertical_flip = 0.0           # a brain is not symmetric top to bottom and the test set is
+                              # not upside down
+max_rotation = 0.0            # 38: first run keeps augmentation exactly as the existing
+                              # models had it, so the CFM objective is the only variable.
+                              # Try 10.0 second, against sections 17/24's turnover.
+
+[model]
+name = "task3_conditional_flow_unet"
+
+[model.params]
+channels = 3                  # T1W, T2W, T2FLAIR stacked; a 3-channel velocity in one pass
+num_domains = 15              # joint (modality, field): s and tau carry both, as one index
+                              # per contrast channel, summed. 5 would make every contrast at
+                              # a field share one embedding row.
+                              # with every contrast predicted at once there is no modality
+                              # left to condition on -- it is the channel axis
+base_channels = 32            # 9.3M params at levels=4; the paper's model is 6.3M
+max_channels = 512
+levels = 4
+film_conditioning = true      # zero-init FiLM, as they use and as A3.1 already established
+
+[training]
+name = "task3_flow_trainer"
+
+[training.params]
+epochs = 20
+learning_rate = 0.0003        # their stage-2 lr is 5e-5 warm-started from a pretrained
+                              # prior; this run starts cold, so it uses their stage-1 lr
+beta1 = 0.9
+beta2 = 0.999
+weight_decay = 0.0
+ema_decay = 0.999             # theirs
+heun_steps = 1                # 1, not 5: this config trains the *pre-GAN* model, and 38.6
+                              # measured the step preference inverting with the GAN --
+                              # without it 1 step beats 5 (0.928 vs 0.914, 0.894 vs 0.885),
+                              # with it 5 beat 1. Scoring this stage at 5 understates it.
+                              # task3_cfm_adv.toml's output is the one to sample at 5.
+save_every = 1
+amp = true
+progress = true
+progress_interval = 5.0
+
+[[losses]]
+name = "task3_cfm"
+weight = 1.0

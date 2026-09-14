@@ -1,0 +1,95 @@
+[experiment]
+name = "task3_cfm_adv_smoke"            # 38: conditional flow matching, after Imre et al.
+                              # (arXiv:2609.00960), whose published best on this task is
+                              # 0.909 -- level with our 0.909353. Their gain over a
+                              # regression baseline sharing the same U-Net is +0.003 SSIM
+                              # but -0.021 LPIPS and -0.019 nRMSE, so the objective mostly
+                              # buys the two metrics we are not already winning.
+seed = 1
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_cfm_adv_smoke"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3_flow.py",
+  "../components/models/conditional_flow_unet.py",
+  "../components/losses/flow_matching.py",
+  "../components/training/task3_flow.py",
+  "../components/training/task3_flow_adv.py",
+  "../components/models/patchgan.py",
+]
+
+[data]
+name = "task3_flow"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "3T"]
+crop_size = [368, 448]
+batch_size = 2              # the rollout keeps 5 generator passes in the graph, so
+                              # activation memory is ~5x a plain step; 4 here vs 16 in stage 2
+                              # single-contrast runs use because each sample is 3x the data
+num_workers = 2
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 1
+prospective_split = "pro_train"
+horizontal_flip = 0.5         # applied to source and target together; the pair is
+                              # registered, so moving one endpoint alone destroys it
+vertical_flip = 0.0           # a brain is not symmetric top to bottom and the test set is
+                              # not upside down
+max_rotation = 0.0            # 38: first run keeps augmentation exactly as the existing
+                              # models had it, so the CFM objective is the only variable.
+                              # Try 10.0 second, against sections 17/24's turnover.
+
+[model]
+name = "task3_conditional_flow_unet"
+
+[model.params]
+channels = 3                  # T1W, T2W, T2FLAIR stacked; a 3-channel velocity in one pass
+num_domains = 15              # joint (modality, field): s and tau carry both, as one index
+                              # per contrast channel, summed in the model. 5 would make every
+                              # contrast at a given field share one embedding row.
+base_channels = 32            # 9.3M params at levels=4; the paper's model is 6.3M
+max_channels = 512
+levels = 4
+film_conditioning = true
+checkpoint = "/home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/experiment-pipeline/runs/task3_cfm_smoke/artifacts/task3_flow_1.pt"      # zero-init FiLM, as they use and as A3.1 already established
+
+[training]
+name = "task3_flow_adv_trainer"
+
+[training.params]
+epochs = 1
+rollout_steps = 3             # Euler during training, Heun at inference: Heun is two network
+                              # calls per step and the graph is retained across all of them
+channels = 3
+num_domains = 15
+discriminator_scales = 2
+discriminator_channels = 64
+discriminator_warmup = 3   # theirs; the critic trains alone first, since a cold critic's
+                              # gradient is noise and the generator cannot absorb a bad push
+adversarial_ramp = 3       # generator steps over which the adversarial weight ramps from 0
+adversarial_weight = 0.0001   # theirs. Tiny against the anchor at 1 -- the feature-matching
+                              # term at 10 is what actually carries the refinement
+feature_matching_weight = 10.0
+velocity_weight = 1.0         # the faithfulness anchor; without it the critic is satisfied
+                              # by a sharp, plausible, wrong brain
+generator_learning_rate = 0.00001
+discriminator_learning_rate = 0.0003
+ema_decay = 0.999
+save_every = 1
+amp = true
+progress = false
+progress_interval = 5.0
+
+[[losses]]
+name = "task3_cfm"
+weight = 1.0
