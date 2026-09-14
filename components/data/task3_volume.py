@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from eval_pipeline.components.data.base import DataModule
 from eval_pipeline.registry import register_component
+from mrixfields.audit import audit_file_loading
 from mrixfields.data.utils import (
     ABBR_TO_SPLIT,
     FIELD_STRENGTHS,
@@ -80,6 +81,11 @@ class _PairedVolumeDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, Any]:
         rng = random.Random((self.seed, index, torch.initial_seed()).__hash__())
         pair = self.pairs[rng.randrange(len(self.pairs))]
+        # Rule I.2 of the Data Integrity Policy wants a record for every data loading
+        # operation. mmap_mode="r" means np.load itself touches almost nothing, so the
+        # audit hook is what actually reads and fingerprints the file here.
+        audit_file_loading(pair.source)
+        audit_file_loading(pair.target)
         source = np.load(pair.source, mmap_mode="r")
         target = np.load(pair.target, mmap_mode="r")
         if self.axial_first:

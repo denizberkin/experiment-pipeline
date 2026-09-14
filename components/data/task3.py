@@ -14,6 +14,7 @@ from mrixfields.data.cached_dataset import (
     CachedUnpairedDataset,
 )
 from mrixfields.data.dataset import PairedMRIDataset, UnpairedMRIDataset
+from mrixfields.audit import reinit_for_worker
 from mrixfields.data.utils import (
     ABBR_TO_SPLIT,
     FIELD_STRENGTHS,
@@ -303,6 +304,9 @@ class Task3DataModule(DataModule[dict[str, DataLoader]]):
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=num_workers > 0,
+            # The audit hook writes from inside the workers, and its file handle does not
+            # survive the fork. This gives each worker its own pid-named log.
+            worker_init_fn=reinit_for_worker,
             generator=torch.Generator().manual_seed(seed),
         )
 
@@ -339,9 +343,16 @@ class Task3MultiContrastDataModule(DataModule[dict[str, DataLoader]]):
             raise ValueError("task3_multicontrast requires PREPROCESSED_DIR or preprocessed_dir")
         if not 0.0 <= horizontal_flip <= 1.0:
             raise ValueError("horizontal_flip must be between 0 and 1")
+        # 34: parsed here as well as in Task3DataModule. The two modules do not share a
+        # setup(), so reading it in only one of them left this one raising NameError the
+        # moment a config actually set neighbour_offsets.
+        neighbour_offsets = tuple(int(o) for o in self.params.get("neighbour_offsets", ()))
+        if any(o == 0 for o in neighbour_offsets):
+            raise ValueError("neighbour_offsets must be non-zero; the centre slice is always included")
 
         train = self._datasets(modalities, fields, crop_size, preprocessed_dir, split,
-                               horizontal_flip, holdout, exclude=True,
+                               holdout=holdout, exclude=True,
+                               horizontal_flip=horizontal_flip,
                                neighbour_offsets=neighbour_offsets)
         if not train:
             raise FileNotFoundError("No multi-contrast Task 3 training pairs were found")
@@ -410,5 +421,6 @@ class Task3MultiContrastDataModule(DataModule[dict[str, DataLoader]]):
         return DataLoader(
             dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
             pin_memory=torch.cuda.is_available(), persistent_workers=num_workers > 0,
+            worker_init_fn=reinit_for_worker,   # see the note on the other loader
             generator=torch.Generator().manual_seed(seed),
         )

@@ -9,6 +9,25 @@ from tqdm import tqdm
 from eval_pipeline.components.trainers.base import Trainer
 from eval_pipeline.context import TrainingContext
 from eval_pipeline.registry import register_component
+from mrixfields.audit import AUDIT_ENABLED, get_mem_usage, get_train_logger
+
+#: Audit logger, per the Data Integrity Policy (wiki 642237, Rule I.3/4/5). Built on first
+#: use rather than at import: this module is listed in every config's registry.paths, so
+#: scripts/eval_holdout.py imports it too, and an eval run has no business opening a
+#: training log.
+_LOGGER = None
+
+
+def audit_logger():
+    global _LOGGER
+    if _LOGGER is None:
+        _LOGGER = get_train_logger()
+    return _LOGGER
+
+
+def loss_weights(losses: dict[str, Any]) -> dict[str, float]:
+    """The configured weight of each loss, for the audit log's optional LossWeight field."""
+    return {name: float(item.get("weight", 1.0)) for name, item in losses.items()}
 
 
 def block_mask(images: torch.Tensor, ratio: float, patch_size: int) -> torch.Tensor:
@@ -146,6 +165,13 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 step += 1
                 last_loss = float(loss.detach())
 
+                audit_logger().info(
+                    f"Epoch:0, Iteration:{step}, LR:{optimizer.param_groups[0]['lr']}, "
+                    f"Scheduler:None, BatchSize:{images.shape[0]}, Loss:{last_loss:.6f}, "
+                    f"LossWeight:{{'masked_l1': 1.0}}, MemUsage:{get_mem_usage()}, "
+                    f"Stage:pretraining"
+                )
+
                 if step % print_every == 0 or step == steps:
                     context.tracker.log_loss("masked_l1", last_loss, step=step, stage="pretraining")
                     print(f"Pretraining [{step}/{steps}] masked_l1={last_loss:.6f}", flush=True)
@@ -235,6 +261,10 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 flush=True,
             )
 
+        # Global step counter for the audit log's Iteration field: it runs across epochs
+        # rather than resetting, so (Epoch, Iteration) is unique over the whole run.
+        iteration = 0
+
         for epoch in range(1, epochs + 1):
             model.train()
             running_loss = 0.0
@@ -252,8 +282,13 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 target = batch["target"].to(device)
                 source_domain = batch["source_domain"].to(device).long()
                 target_domain = batch["target_domain"].to(device).long()
+                # 39: absent unless the data module emits it, and the model ignores None,
+                # so a config without slice conditioning is unchanged.
+                slice_pos = batch.get("slice_pos")
+                if slice_pos is not None:
+                    slice_pos = slice_pos.to(device)
                 with torch.amp.autocast(device.type, enabled=use_amp):
-                    prediction = model(source, target_domain, source_domain)
+                    prediction = model(source, target_domain, source_domain, slice_pos)
                     loss, values = weighted_reconstruction_loss(losses, prediction, target)
                     if low_field_weight > 0.0:
                         # Re-charge the same losses on the 0.1T subset of the batch and add
@@ -277,6 +312,16 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 for name, value in values.items():
                     running_values[name] += value
                 batches += 1
+                iteration += 1
+
+                audit_logger().info(
+                    f"Epoch:{epoch}, Iteration:{iteration}, "
+                    f"LR:{optimizer.param_groups[0]['lr']}, Scheduler:None, "
+                    f"BatchSize:{source.shape[0]}, Loss:{float(loss.detach()):.6f}, "
+                    f"Losses:{ {k: round(v, 6) for k, v in values.items()} }, "
+                    f"LossWeight:{loss_weights(losses)}, MemUsage:{get_mem_usage()}, "
+                    f"Stage:finetuning"
+                )
 
             last_loss = running_loss / max(batches, 1)
             context.tracker.log_loss("total", last_loss, step=epoch, stage="finetuning")
@@ -293,10 +338,14 @@ class Task3UNetTrainer(Trainer[dict[str, Any], torch.nn.Module, dict[str, Any]])
                 with torch.no_grad():
                     for batch in validation_loader:
                         with torch.amp.autocast(device.type, enabled=use_amp):
+                            validation_slice_pos = batch.get("slice_pos")
+                            if validation_slice_pos is not None:
+                                validation_slice_pos = validation_slice_pos.to(device)
                             prediction = model(
                                 batch["source"].to(device),
                                 batch["target_domain"].to(device).long(),
                                 batch["source_domain"].to(device).long(),
+                                validation_slice_pos,
                             )
                             loss, _ = weighted_reconstruction_loss(
                                 losses, prediction, batch["target"].to(device)

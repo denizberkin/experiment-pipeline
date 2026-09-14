@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
@@ -20,6 +21,47 @@ class _ConvBlock(nn.Sequential):
             nn.InstanceNorm2d(output_channels, affine=True),
             nn.LeakyReLU(0.2, inplace=True),
         )
+
+
+class _SliceEmbedding(nn.Module):
+    """Sinusoidal embedding of normalised axial position, added to the bottleneck vector.
+
+    Where a slice sits along z decides which anatomy is in it -- orbits and temporal lobe low,
+    ventricles mid, vertex high -- and the field transition is not the same mapping in each.
+    The domain embeddings cannot carry that: every slice of a volume shares them, so the model
+    currently has no way to know whether it is looking at cerebellum or corona radiata.
+
+    Sinusoidal rather than an nn.Embedding over the 220 slice indices: position is continuous
+    and the useful structure is smooth in it, so neighbouring slices should share a
+    representation instead of each learning an independent row from 1/220th of the data.
+
+    The output projection is zero-init, so a model built with slice_conditioning=True and
+    loaded from a checkpoint trained without it computes exactly the same function at step 0.
+    That is what lets this be seeded from mc_25d_e10 and scored as a pure delta.
+    """
+
+    def __init__(self, channels: int, max_period: float = 10_000.0) -> None:
+        super().__init__()
+        self.channels = channels
+        half = max(1, channels // 2)
+        frequencies = torch.exp(
+            -math.log(max_period) * torch.arange(half, dtype=torch.float32) / half
+        )
+        self.register_buffer("frequencies", frequencies, persistent=False)
+        self.projection = nn.Sequential(
+            nn.Linear(channels, channels), nn.SiLU(), nn.Linear(channels, channels)
+        )
+        nn.init.zeros_(self.projection[-1].weight)
+        nn.init.zeros_(self.projection[-1].bias)
+
+    def forward(self, position: torch.Tensor) -> torch.Tensor:
+        # x1000 puts [0,1] on the same angular scale the timestep embeddings use, so the
+        # low frequencies vary appreciably across the volume instead of being near-constant.
+        angles = position.float().reshape(-1, 1) * 1000.0 * self.frequencies.reshape(1, -1)
+        embedded = torch.cat((torch.sin(angles), torch.cos(angles)), dim=-1)
+        if embedded.shape[-1] < self.channels:
+            embedded = F.pad(embedded, (0, self.channels - embedded.shape[-1]))
+        return self.projection(embedded)
 
 
 class _FiLM(nn.Module):
@@ -70,6 +112,7 @@ class ConditionalUNet(nn.Module):
         levels: int = 4,
         residual_output: bool = False,
         film_conditioning: bool = False,
+        slice_conditioning: bool = False,
     ) -> None:
         super().__init__()
         if levels < 1:
@@ -106,6 +149,9 @@ class ConditionalUNet(nn.Module):
 
         # Off by default: both flags add tensors or move them, and the
         # task3_unet_pro artifacts have to keep loading with strict=True.
+        self.slice_embedding = (
+            _SliceEmbedding(bottleneck_channels) if slice_conditioning else None
+        )
         self.film_projections = (
             nn.ModuleList(_FiLM(bottleneck_channels, channel) for channel in reversed(channels))
             if film_conditioning
@@ -129,6 +175,7 @@ class ConditionalUNet(nn.Module):
         image: torch.Tensor,
         target_domain: torch.Tensor,
         source_domain: torch.Tensor | None = None,
+        slice_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         skips = []
         x = image
@@ -140,6 +187,10 @@ class ConditionalUNet(nn.Module):
         x = self.bottleneck(x)
         source_domain = target_domain if source_domain is None else source_domain
         conditioning = self.source_embedding(source_domain) + self.target_embedding(target_domain)
+        # Added to the same vector the FiLM projections read, so axial position modulates the
+        # decoder exactly the way the domain pair does, rather than only shifting the bottleneck.
+        if self.slice_embedding is not None and slice_pos is not None:
+            conditioning = conditioning + self.slice_embedding(slice_pos)
         # The bottleneck add survives even with FiLM on. Removing it would
         # change the function a loaded checkpoint computes, and the whole point
         # of the zero-init FiLM is that step 0 reproduces that checkpoint.
@@ -198,6 +249,7 @@ def unet_from_state_dict(state: dict[str, "torch.Tensor"]) -> "ConditionalUNet":
         num_domains=int(state["target_embedding.weight"].shape[0]),
         residual_output="residual_head.weight" in state,
         film_conditioning=any(key.startswith("film_projections.") for key in state),
+        slice_conditioning=any(key.startswith("slice_embedding.") for key in state),
     )
     model.load_state_dict(state, strict=True)
     return model
@@ -215,12 +267,27 @@ class ConditionalUNetFactory(ModelFactory[ConditionalUNet]):
             levels=int(self.params.get("levels", 4)),
             residual_output=bool(self.params.get("residual_output", False)),
             film_conditioning=bool(self.params.get("film_conditioning", False)),
+            slice_conditioning=bool(self.params.get("slice_conditioning", False)),
         )
         checkpoint = self.params.get("checkpoint")
         device = self._device()
         if checkpoint:
             state = torch.load(checkpoint, map_location=device, weights_only=True)
-            model.load_state_dict(state.get("model", state))
+            weights = state.get("model", state)
+            # Seeding a slice-conditioned model from one trained without it is the intended
+            # path (section 39), and those checkpoints have no slice_embedding.* keys. Allow
+            # exactly those to be missing -- the module is zero-init, so the seeded model
+            # starts bit-identical -- and keep every other mismatch fatal.
+            missing, unexpected = model.load_state_dict(weights, strict=False)
+            stray = [k for k in missing if not k.startswith("slice_embedding.")]
+            if stray or unexpected:
+                raise RuntimeError(
+                    f"{checkpoint} does not match the model: {len(stray)} missing "
+                    f"{stray[:4]}, {len(unexpected)} unexpected {list(unexpected)[:4]}"
+                )
+            if missing:
+                print(f"seeded from {checkpoint}; slice conditioning starts at zero "
+                      f"({len(missing)} new tensors)")
         return model.to(device)
 
     def _device(self) -> torch.device:

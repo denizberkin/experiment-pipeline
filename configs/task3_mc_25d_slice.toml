@@ -1,0 +1,136 @@
+[experiment]
+name = "task3_mc_25d_slice"   # 39: axial-position conditioning on top of the 2.5D model
+                               # Task 3 is pure contrast mapping (identity already scores
+                               # 0.836), and one intensity per voxel cannot separate WM from
+                               # GM from a partial-volume edge -- three contrasts largely pin
+                               # down the tissue, making the target field near-deterministic.
+                               # Seeded from the 0.903110 model, widened to 4 channels with
+                               # the auxiliaries zeroed, so step 0 reproduces it exactly.
+                               # model turns over -- the non-pretrained one peaked at e20.
+seed = 1
+device = "cuda:0"
+output_dir = "../runs"
+
+[tracking]
+name = "mlflow"
+
+[tracking.params]
+experiment_name = "task3-conditional-unet"
+run_name = "task3_mc_25d_slice"
+tracking_uri = "sqlite:////home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/mlflow.db"
+
+[registry]
+paths = [
+  "../components/data/task3.py",
+  "../components/models/conditional_unet.py",
+  "../components/losses/reconstruction.py",
+  "../components/training/task3.py",
+]
+
+[data]
+name = "task3_multicontrast"
+
+[data.params]
+modalities = ["T1W", "T2W", "T2FLAIR"]
+field_strengths = ["0.1T", "1.5T", "3T", "5T", "7T"]
+crop_size = [368, 448]
+batch_size = 64
+num_workers = 8
+data_dir = "/home/ruru/Documents/deniz/mri_fields/data"
+preprocessed_dir = "/home/ruru/Documents/deniz/mri_fields/data_preprocessed"
+seed = 1
+include_retro = false         # pretrain_steps = 0, so the retrospective loader is not needed
+use_preprocessed = true
+require_complete = true
+prospective_split = "pro_train"
+# 34: measured adjacent-slice SSIM at 0.5mm isotropic is 0.962-0.995 at x+1 -- nearly the
+# same image, so the through-plane gradient there is noise-dominated. At x+2 it is 0.894-0.985,
+# genuinely different everywhere while still only 1mm away.
+neighbour_offsets = [-2, 2]
+retrospective_split = "retro_train"
+holdout_subjects = []         # only 3 paired subjects exist; holding one out costs 33% of the training data
+horizontal_flip = 0.5
+
+[model]
+name = "task3_conditional_unet"
+
+[model.params]
+# (primary, T1W, T2W, T2FLAIR); channel 0 duplicates the contrast being predicted
+input_channels = 12          # 34: 4 contrasts x 3 axial slices (x-2, x, x+2). Blocks are
+                             # (primary, T1W, T2W, T2FLAIR) and the centre block comes first,
+                             # so a 4-channel checkpoint widened with zeros starts bit-identical.
+output_channels = 1
+num_domains = 15
+base_channels = 32
+max_channels = 512
+levels = 4
+# A1.1: zero-init residual head instead of Conv+Tanh, so step 0 is the
+# identity the challenge already scores at SSIM 0.836.
+residual_output = true
+# A3.1: zero-init FiLM after both norms of every decoder block, on top of
+# the bottleneck add, so step 0 still reproduces task3_unet_pro exactly.
+film_conditioning = true
+# 39: sinusoidal embedding of normalised axial position (z on 72..291) added to the same
+# conditioning vector the FiLM projections read. The domain embeddings are shared by every
+# slice of a volume, so nothing currently tells the model whether it is looking at cerebellum
+# or vertex -- and the field mapping is not the same in each. Output projection is zero-init,
+# so epoch 0 reproduces the seed checkpoint exactly and any delta is attributable.
+# The evaluated slab is z=150..179, i.e. position 0.356..0.493: the gain has to come from the
+# model no longer averaging one mapping over all 220 training positions, not from the extremes.
+slice_conditioning = true
+# Seeded from mc_25d_e10 itself -- the 0.909353 submission, our best. With the zero-init
+# slice projection this makes epoch 0 that model bit-for-bit, so the run measures exactly one
+# thing: what axial position is worth.
+checkpoint = "/home/ruru/Documents/deniz/mri_fields/mrixfields-analysis/experiment-pipeline/runs/task3_mc_25d/artifacts/task3_unet_finetune_10.pt"
+
+[training]
+name = "task3_unet_trainer"
+
+[training.params]
+pretrain_steps = 0            # pretrained weights arrive via model.params.checkpoint
+mask_ratio = 0.5
+mask_patch_size = 16
+pretrain_learning_rate = 0.0001
+# The defaults here are 0.0/0.99, which are GAN betas. This is a plain L1 reconstruction,
+# so use the standard Adam pair instead.
+pretrain_beta1 = 0.9
+pretrain_beta2 = 0.999
+pretrain_save_every = 10000
+pretrain_print_every = 250
+epochs = 8                  # 39: refinement of an already-converged model
+                            # widened 4 -> 12 with the new channels zeroed, so epoch 0 is
+                            # that model exactly and this is refinement, not training.
+learning_rate = 0.0001
+beta1 = 0.9
+beta2 = 0.999
+save_every = 1               # 28.6: the SSIM term makes the trajectory oscillate +/-0.003 between
+                             # adjacent epochs at every weight tested, while the training loss falls
+                             # monotonically. The gains have to be harvested by dense sampling, not
+                             # engineered away, and a coarse grid has already cost us once (28.2).
+log_checkpoints = false      # skip the byte-identical mlruns/ copy; runs/<name>/artifacts/ already has it
+amp = true
+progress = true
+progress_interval = 5.0
+early_stopping_patience = 0        # fixed epoch budget, not early stopping
+early_stopping_min_delta = 0.0001
+early_stopping_restore_best = true
+
+[[losses]]
+name = "task3_l1"
+weight = 1.0
+
+[[losses]]
+name = "task3_ssim"
+# 1 - SSIM, computed exactly as the scorer computes it (7x7 uniform window, unbiased
+# covariance, border dropped) -- verified against skimage at max |diff| 3.2e-07.
+# Weight 0.5: at mc e20 the model sits at 1 - SSIM ~ 0.042 and L1 ~ 0.0119, so this term
+# is ~1.7x L1. SSIM is what is ranked, but L1 is the only thing anchoring absolute
+# intensity and nRMSE is already our weakest metric, so it is not crowded out.
+weight = 0.5
+
+[[losses]]
+name = "task3_lpips"
+weight = 0.05
+
+[losses.params]
+net = "alex"
